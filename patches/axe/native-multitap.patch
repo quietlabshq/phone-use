@@ -1,0 +1,84 @@
+diff --git a/Plugins/VersionPlugin/plugin.swift b/Plugins/VersionPlugin/plugin.swift
+index 417dd3d..1ea9b94 100644
+--- a/Plugins/VersionPlugin/plugin.swift
++++ b/Plugins/VersionPlugin/plugin.swift
+@@ -55,7 +55,7 @@ struct VersionPlugin: BuildToolPlugin {
+                     """,
+                     outputPath.string,
+                 ],
+-                environment: [:],
++                environment: ["AXE_VERSION": "1.8.0-phone-use.1"],
+                 inputFiles: [],
+                 outputFiles: [outputPath]
+             ),
+diff --git a/Sources/AXe/Commands/Tap.swift b/Sources/AXe/Commands/Tap.swift
+index 06f7184..dcccebf 100644
+--- a/Sources/AXe/Commands/Tap.swift
++++ b/Sources/AXe/Commands/Tap.swift
+@@ -26,6 +26,9 @@ struct Tap: AsyncParsableCommand {
+     @Option(name: [.customLong("element-type")], help: "Filter matches to elements of this accessibility type (e.g. Button, TextField, Switch). Narrows --id/--label/--value results when multiple elements match.")
+     var elementType: String?
+
++    @Option(help: "Number of contacts in one HID gesture (1...3).")
++    var count: Int = 1
++
+     @Option(name: .customLong("pre-delay"), help: "Delay before tapping in seconds.")
+     var preDelay: Double?
+
+@@ -46,6 +49,9 @@ struct Tap: AsyncParsableCommand {
+
+
+     func validate() throws {
++        guard (1...3).contains(count) else {
++            throw ValidationError("--count must be between 1 and 3.")
++        }
+         if pointX != nil || pointY != nil {
+             guard let pointX, let pointY else {
+                 throw ValidationError("Both -x and -y must be provided together.")
+@@ -145,6 +151,14 @@ struct Tap: AsyncParsableCommand {
+             logger: logger
+         )
+
++        if count > 1 {
++            try await HIDInteractor.performHIDEvent(
++                repeatedTapEvent(at: physicalPoint), for: simulatorUDID, logger: logger
++            )
++            print("✓ Multi-tap completed successfully")
++            return
++        }
++
+         switch resolvedTapStyle(for: resolution) {
+         case .physical:
+             try await HIDInteractor.performPhysicalTap(
+@@ -176,6 +190,19 @@ struct Tap: AsyncParsableCommand {
+         print("✓ Tap at \(resolvedDescription) completed successfully")
+     }
+
++    func repeatedTapEvent(at point: (x: Double, y: Double)) -> FBSimulatorHIDEvent {
++        var events: [FBSimulatorHIDEvent] = []
++        if let preDelay, preDelay > 0 { events.append(.delay(preDelay)) }
++        for index in 0..<count {
++            if index > 0 { events.append(.delay(0.08)) }
++            events.append(.touch(direction: .down, x: point.x, y: point.y))
++            events.append(.delay(0.04))
++            events.append(.touch(direction: .up, x: point.x, y: point.y))
++        }
++        if let postDelay, postDelay > 0 { events.append(.delay(postDelay)) }
++        return .composite(events)
++    }
++
+     private func resolvedTapStyle(for resolution: TapResolution) -> TapStyle {
+         switch tapStyle ?? .automatic {
+         case .automatic:
+diff --git a/Sources/AXe/Utilities/Batch/Command+BatchConvertible.swift b/Sources/AXe/Utilities/Batch/Command+BatchConvertible.swift
+index 95acc51..31f5e68 100644
+--- a/Sources/AXe/Utilities/Batch/Command+BatchConvertible.swift
++++ b/Sources/AXe/Utilities/Batch/Command+BatchConvertible.swift
+@@ -120,6 +120,7 @@ extension Tap: BatchConvertible {
+             )
+         }
+
++        if count > 1 { return [.hidMergeable(repeatedTapEvent(at: physicalPoint))] }
+         let style = resolvedTapStyle(for: resolution, context: context)
+         switch style {
+         case .physical:

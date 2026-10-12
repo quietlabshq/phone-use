@@ -1,0 +1,8 @@
+{
+  "name": "phone-use-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-29",
+  "durable_objects": { "bindings": [{ "name": "MACS", "class_name": "MacRelay" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MacRelay"] }],
+  "observability": { "enabled": false }
+}

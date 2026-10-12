@@ -1,0 +1,14 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font:16px sans-serif}textarea{font:24px sans-serif;width:95%}pre{font:14px monospace;white-space:pre-wrap}</style>
+<textarea id="field" spellcheck="false" autocorrect="off">alpha beta gamma</textarea>
+<pre id="events">Tap the text field once before testing.</pre>
+<script>
+let contacts=[];
+for(let kind of ['touchstart','touchend','dblclick']){
+document.addEventListener(kind,e=>{
+contacts.push(kind+' '+Math.round(e.timeStamp));
+events.textContent=contacts.slice(-9).join('\n');
+});
+}
+</script>
