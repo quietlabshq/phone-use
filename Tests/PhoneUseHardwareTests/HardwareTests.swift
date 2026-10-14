@@ -148,7 +148,12 @@ private actor RecordingSleeper: Sleeper {
     store.config = Config(phones: [PhoneConfig(name: "Mine", captureDeviceName: "USB")])
     #expect(await registry.discover().phones.map(\.info.name) == ["Mine"])
     store.config = Config(phones: [PhoneConfig(name: "Renamed", captureDeviceName: "USB")])
-    #expect(await registry.discover().phones.map(\.info.name) == ["Renamed"])
+    let renamed = try #require(await registry.discover().phones.first)
+    #expect(renamed.info.name == "Renamed")
+    // An unchanged entry keeps its phone; changed pointer gains rebuild it.
+    #expect(try #require(await registry.discover().phones.first) as AnyObject === renamed as AnyObject)
+    store.config = Config(phones: [PhoneConfig(name: "Renamed", captureDeviceName: "USB", pointer: PointerGains(pixelsPerCountX: 2, pixelsPerCountY: 2))])
+    #expect(try #require(await registry.discover().phones.first) as AnyObject !== renamed as AnyObject)
 }
 private final class ConfigBox: @unchecked Sendable {
     private let lock = NSLock()

@@ -67,7 +67,7 @@ private actor RegistryState {
     let loadConfig: @Sendable () throws -> Config
     let transportFor: @Sendable (PhoneConfig) -> (any HIDTransport)?
     let candidates: @Sendable () async throws -> [CaptureCandidate]
-    var cached: [String: HardwarePhone] = [:]
+    var cached: [String: (config: PhoneConfig, phone: HardwarePhone)] = [:]
     init(loadConfig: @escaping @Sendable () throws -> Config, transportFor: @escaping @Sendable (PhoneConfig) -> (any HIDTransport)?,
          candidates: @escaping @Sendable () async throws -> [CaptureCandidate]) {
         self.loadConfig = loadConfig; self.transportFor = transportFor; self.candidates = candidates
@@ -79,7 +79,7 @@ private actor RegistryState {
             let available = try await candidates()
             var phones: [any Phone] = []
             var hints: [String] = []
-            var retained: [String: HardwarePhone] = [:]
+            var retained: [String: (config: PhoneConfig, phone: HardwarePhone)] = [:]
             for configured in config.phones {
                 let matches = available.filter { $0.name == configured.captureDeviceName }
                 guard matches.count == 1, let device = matches.first else {
@@ -87,10 +87,11 @@ private actor RegistryState {
                     continue
                 }
                 let id = "hardware:\(device.id)"
-                let reusable = cached[id].flatMap { $0.info.name == configured.name ? $0 : nil }
+                // Reuse only an unchanged phone: it keeps capture and pointer state across discoveries.
+                let reusable = cached[id].flatMap { $0.config == configured ? $0.phone : nil }
                 let phone = reusable ?? HardwarePhone(info: PhoneInfo(id: id, name: configured.name, kind: .hardware, screenSize: device.size), capture: device.capture,
                                                       frames: device.frames, transport: transportFor(configured) ?? UnavailableTransport(), gains: configured.pointer)
-                retained[id] = phone
+                retained[id] = (configured, phone)
                 phones.append(phone)
             }
             for device in available where !config.phones.contains(where: { $0.captureDeviceName == device.name }) {
