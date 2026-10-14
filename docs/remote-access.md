@@ -4,10 +4,11 @@
 
 ## Start locally
 
-Get exact phone IDs before starting the daemon:
+Get exact phone IDs before starting the daemon, then quit Phone Use.app: `serve` runs phones in-process and cannot share them with the app.
 
 ```sh
-phone-use list --simulator
+phone-use list
+osascript -e 'quit app "Phone Use"'
 phone-use credentials create --phone YOUR-DEVICE-UDID --expires-at 2026-12-31T00:00:00Z
 phone-use serve --simulator
 ```
