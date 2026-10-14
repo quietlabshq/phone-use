@@ -36,6 +36,7 @@ The app uses the same mechanism QuickTime uses for "New Movie Recording > iPhone
 - This is why it asks for **Camera** permission. The usage string says: "your mac exposes it as a Camera".
 - This needs a USB cable, the phone to trust the Mac, and nothing installed on the phone. Frames arrive in a module called `IOSScreenCapture`.
 - There is a known issue where the capture sometimes doesn't start. The onboarding covers this with a "Sleep" step and a "Restart iPhone" step, both sent through lockdown `diagnostics_relay`.
+- Version 1.0.105 (checked 2026-10-14 from strings and symbols only, no decompiler) still uses only this capture path, in modules `IOSScreenCapture` and `PhoneScreenCaptureClient`. Its paired-phone check ends in `notPaired`, `phoneIsLocked`, `captureNotAvailible`, `bluetoothNotEnabled`, `framesNotObserved`, or `phoneIsGood`. When capture is missing, the onboarding escalates: sleep the phone over USB and ask the user to wake and unlock it, then "Unplug Your iPhone / Plug Your iPhone Back In", then restart the phone. The order is inferred from screen names and copy. The sleep step fixed our own missing screen device; see [capture troubleshooting](../docs/test-day.md#capture-troubleshooting).
 
 ### 2. Input: the Mac as a Bluetooth HID mouse and keyboard
 
