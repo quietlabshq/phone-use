@@ -143,6 +143,30 @@ public actor ToolDispatcher {
             return .error(String(describing: error))
         }
     }
+    /// Phones from the shared discovery, for local UIs.
+    public func phones(refresh: Bool = false) async throws -> (phones: [any Phone], hints: [String]) {
+        try await discover(refresh: refresh)
+    }
+    /// Runs local input (native pixel coordinates) through the same per-phone queue as tool calls.
+    public func run(_ command: DirectCommand, phoneID: String) async throws {
+        let (phones, _) = try await discover(refresh: false)
+        guard let phone = phones.first(where: { $0.info.id == phoneID }) else { throw PhoneError.phoneNotFound(phoneID) }
+        try await acquire(phoneID)
+        var token: UUID?
+        defer {
+            if let token {
+                lastMutationCompletedAt[phoneID] = FrameFreshness.now().capturedAtNanoseconds
+                finishMutation(phoneID: phoneID, token: token)
+            }
+            release(phoneID)
+        }
+        token = try admitMutation(nil, phoneID: phoneID)
+        switch command {
+        case let .action(action): try await phone.perform(action)
+        case .home: try await Macros.home(on: phone, sleeper: sleeper)
+        case let .openApp(name): try await Macros.openApp(name, on: phone, sleeper: sleeper)
+        }
+    }
     private func discover(refresh: Bool) async throws -> DiscoveryResult {
         try Task.checkCancellation()
         if discovery == nil {
@@ -243,3 +267,10 @@ public actor ToolDispatcher {
     }
 }
 private func invalid(_ message: String) -> PhoneError { .commandFailed(message) }
+
+/// Input from a local UI, already in native pixel coordinates.
+public enum DirectCommand: Sendable, Equatable {
+    case action(PhoneAction)
+    case home
+    case openApp(String)
+}

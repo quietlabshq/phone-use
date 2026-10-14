@@ -184,3 +184,31 @@ private let homeActions: [PhoneAction] = [.home]
     guard case let .error(a) = forbidden, case let .error(b) = missing else { Issue.record("Expected errors"); return }
     #expect(a == b)
 }
+
+@Test func directCommandsShareThePhoneQueueWithToolCalls() async throws {
+    let phone = TestPhone()
+    let dispatcher = ToolDispatcher(registry: Registry(phones: [phone]), sleeper: NoSleep())
+    try await withThrowingTaskGroup(of: Void.self) { group in
+        for _ in 0..<3 {
+            group.addTask { try await dispatcher.run(.action(.tap(.init(x: 10, y: 20), count: 1)), phoneID: "one") }
+            group.addTask { _ = await dispatcher.call("tap", ["x": .int(0), "y": .int(0)]) }
+        }
+        try await group.waitForAll()
+    }
+    #expect(await phone.maximum == 1)
+    #expect(await phone.actions.filter { $0 == .tap(.init(x: 10, y: 20), count: 1) }.count == 3)
+}
+@Test func directCommandsRunMacrosAndMarkScreenshotsStale() async throws {
+    let phone = TestPhone()
+    try await phone.installStaleFrame()
+    let dispatcher = ToolDispatcher(registry: Registry(phones: [phone]), sleeper: NoSleep(), imageEncoder: FixtureJPEGEncoder())
+    try await dispatcher.run(.openApp("Maps"), phoneID: "one")
+    #expect(await phone.actions == homeActions + [.key(.space, modifiers: [.command], repeat: 1), .typeText("Maps"), .key(.enter, modifiers: [], repeat: 1)])
+    guard case .error = await dispatcher.call("screenshot", [:]) else { Issue.record("Expected stale frame error"); return }
+}
+@Test func directCommandsRejectUnknownPhones() async throws {
+    let dispatcher = ToolDispatcher(registry: Registry(phones: [TestPhone()]))
+    await #expect(throws: PhoneError.phoneNotFound("missing")) { try await dispatcher.run(.home, phoneID: "missing") }
+    let (phones, hints) = try await dispatcher.phones()
+    #expect(phones.map(\.info.id) == ["one"] && hints == ["hint"])
+}
