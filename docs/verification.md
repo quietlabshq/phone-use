@@ -67,6 +67,20 @@ The Mac is to act as the Bluetooth keyboard and mouse. There is no ESP32 work. T
 
 Transport contract: `send(_ report: HIDReport) async throws` and `isHostConnected() async -> Bool`. Use `ReportDescriptor.bytes` unchanged with keyboard report ID 1 (8 payload bytes), mouse ID 2 (4 payload bytes), and consumer ID 3 (2 payload bytes). `HIDReport.payload` excludes the report ID; the transport must frame it as required by its Bluetooth API. Connection status must describe the intended iPhone, and send failures must propagate so the hardware action pipeline can release held input.
 
-The default factory currently returns `nil`; do not mistake simulator completion for completed Bluetooth support. Physical capture, pairing/input, AssistiveTouch cursor visibility, shortcuts, pointer gains, and USB reconnect behavior remain unverified on hardware. Follow [the ordered test-day guide](test-day.md) once the transport is integrated and an iPhone is available.
+The default factory currently returns `nil`; do not mistake simulator completion for completed Bluetooth support. Physical USB capture (H1) passed on 2026-10-14; see [physical capture](#physical-capture). Pairing/input, AssistiveTouch cursor visibility, shortcuts, pointer gains, and USB reconnect behavior remain unverified on hardware. Follow [the ordered test-day guide](test-day.md) once the transport is integrated and an iPhone is available.
 
 No user MCP configuration or global skill installation was changed. Claude verification used a session-specific MCP configuration pointing at the release executable with `mcp --simulator` and `PHONE_USE_AXE="$PWD/.build/tools/axe/bin/axe"`.
+
+## Physical capture
+
+Verified on 2026-10-14 with an iPhone 15 Pro Max (`iPhone16,2`, name `richard-15`) on iOS 27, connected by USB to this Mac on macOS 27.0. Configuration: `{"phones": [{"name": "richard-15", "captureDeviceName": "richard-15"}]}`.
+
+H1 passed: `phone-use screenshot --hardware` returned a 620x1344 JPEG that matched the phone's screen (Find My, status bar at the top). Input remains untested because `Runtime.transportFactory` still returns `nil`.
+
+Getting there took three fixes, all recorded in [capture troubleshooting](test-day.md#capture-troubleshooting):
+
+- macOS listed only the phone's Continuity Camera devices, not its screen, even with `kCMIOHardwarePropertyAllowScreenCaptureDevices` set, the phone unlocked and a 20-second wait. QuickTime could not see the screen either. Replugging did not help. Putting the phone to sleep with `idevicediagnostics sleep` and waking it made the screen device appear at once.
+- Capture from this agent session failed with "Camera access denied" because T3 Code (Nightly) lacks the camera entitlement. Running the same command through Terminal.app succeeded.
+- The first screenshot was upside down. `PixelFrameImageAdapter` flipped every frame vertically, which also affected simulator screenshots. Commit `c14b38d` removed the flip and added a regression test; the next physical screenshot was upright.
+
+Still open on hardware: USB reconnect while MCP runs, an automatic sleep-and-wake recovery in phone-use (it currently only reports "devices: none"), and everything that needs the Bluetooth input transport (H2-H6).

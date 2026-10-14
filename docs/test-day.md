@@ -25,7 +25,7 @@ Record the device, OS versions, capture dimensions, transport implementation, an
    "$BIN" doctor
    ```
 
-   Expect a successful build and individual `OK` or `FIX` lines for AXe, booted simulators, capture, configuration, and input. `doctor` exits nonzero when any check fails. AXe >= 1.8.0 is needed for simulator work; use the [pinned build](../patches/axe/README.md) for native multi-tap and set `PHONE_USE_AXE` to its executable if discovery fails. A simulator warning does not establish a hardware failure. For capture failure, check USB, unlock, Trust, and Camera permission. For config failure, correct the JSON. An input failure requires the integrated transport and a connected host, even if capture works.
+   Expect a successful build and individual `OK` or `FIX` lines for AXe, booted simulators, capture, configuration, and input. `doctor` exits nonzero when any check fails. AXe >= 1.8.0 is needed for simulator work; use the [pinned build](../patches/axe/README.md) for native multi-tap and set `PHONE_USE_AXE` to its executable if discovery fails. A simulator warning does not establish a hardware failure. For capture failure, check USB, unlock, Trust, and Camera permission (see [capture troubleshooting](#capture-troubleshooting)). For config failure, correct the JSON. An input failure requires the integrated transport and a connected host, even if capture works.
 
 3. **Configure capture and list phones.** Save `~/.config/phone-use/config.json` using the exact capture device name printed by `doctor`. This is example configuration, not a device discovered by this guide:
 
@@ -122,3 +122,33 @@ Record the device, OS versions, capture dimensions, transport implementation, an
    - "Return Home, open Settings, scroll down once, show the result, then return Home. Do not change any settings."
 
    Expect correct phone selection, screenshot coordinates, and a screenshot-action-verification loop. Stop at authentication prompts or repeated targeting failures. Capture success alone is not a pass for the input tasks. Do not extend these checks to sending messages, posting, payments, or deletion without explicit authorization.
+
+## Capture troubleshooting
+
+These steps got USB capture working on 2026-10-14 (iPhone 15 Pro Max, macOS 27.0, iOS 27). Work through them in order.
+
+**Run from an app that can get Camera access.** macOS charges a command-line tool's Camera use to the app that launched it. Terminal.app and cmux can ask for access; T3 Code (Nightly) cannot, because it is signed with the hardened runtime and without `com.apple.security.device.camera`. From such an app, `screenshot` fails with "Camera access denied", and the app never appears in System Settings > Privacy & Security > Camera. Discovery (`doctor`, `list`) works anywhere because it does not open the camera. An agent session running inside T3 Code can still drive capture by writing a script and opening it in Terminal:
+
+```sh
+mkdir -p /tmp/pu-run && cat > /tmp/pu-run/screenshot.command <<'SH'
+#!/bin/sh
+exec > /tmp/pu-run/screenshot.log 2>&1
+cd /path/to/phone-use && "$(swift build -c release --show-bin-path)/phone-use" screenshot --hardware --phone "$PHONE_ID" -o /tmp/iphone.jpg
+echo "exit=$?"
+SH
+chmod +x /tmp/pu-run/screenshot.command && open -a Terminal /tmp/pu-run/screenshot.command
+```
+
+**Check that the screen device exists, not just the camera.** A paired iPhone can show up only as Continuity Camera devices (`<name> Camera`, `<name> Desk View Camera`), which carry video but not the screen. The screen device is named after the phone itself (for example `richard-15`), carries muxed media, and is what `doctor` lists and QuickTime shows under File > New Movie Recording. If QuickTime does not list it either, the problem is below phone-use.
+
+**Confirm the phone is on USB and unlocked.** `xcrun devicectl list devices` should say `connected`, not `available (paired)`, which means network only. `xcrun devicectl device info lockState --device <udid>` should report `passcodeRequired: false`. The screen device disappears when the phone auto-locks, and captures then time out.
+
+**If the screen device is still missing, sleep the phone over USB.** This is the fix that worked, and TapKit's onboarding uses the same recovery (see [the TapKit teardown](../research/tapkit.md)):
+
+```sh
+nix shell nixpkgs#libimobiledevice -c idevicediagnostics -u <udid> sleep
+```
+
+The phone goes into deep sleep. Wake and unlock it; the screen device appeared immediately afterwards. Replugging the cable alone did not help. If sleeping does not help either, unplug and replug while unlocked, then restart the iPhone (`idevicediagnostics -u <udid> restart`, or by hand).
+
+`list --hardware` reports the size as `1x1` until the first screenshot; it is a placeholder, not a capture failure.

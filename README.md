@@ -71,7 +71,7 @@ For agent operating instructions, see the [phone-use skill](skills/phone-use/SKI
 
 USB supplies screen capture. Bluetooth HID supplies input separately; the default build has no installed input transport. Capture availability does not mean input is connected. The Mac Bluetooth implementation is owned by a separate agent and is required for physical input; see the [physical iPhone test-day guide](docs/test-day.md).
 
-Connect, unlock, and trust the iPhone. Grant Camera access when capturing. Save configuration at `~/.config/phone-use/config.json` using the capture device name reported by `doctor`:
+Connect, unlock, and trust the iPhone. Grant Camera access when capturing. macOS asks the app that launched `phone-use` for it, so run hardware capture from a terminal such as Terminal.app; apps without the camera entitlement, such as T3 Code, are denied without a prompt. If capture finds no screen device, see [capture troubleshooting](docs/test-day.md#capture-troubleshooting). Save configuration at `~/.config/phone-use/config.json` using the capture device name reported by `doctor`:
 
 ```json
 {
