@@ -21,7 +21,7 @@ struct AgentTouch: View {
                 }
                 .position(x: x, y: y)
                 if label {
-                    Text("\(point.x), \(point.y)")
+                    Text(verbatim: "\(point.x), \(point.y)")
                         .font(.caption.monospacedDigit())
                         .padding(.horizontal, 7).padding(.vertical, 3)
                         .glassEffect(in: .capsule)
