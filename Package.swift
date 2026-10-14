@@ -19,7 +19,7 @@ targets = [
     ], path: "Sources/phone-use-linux", resources: [.copy("fake-screenshot.jpg")]),
     .testTarget(name: "PhoneUseCoreTests", dependencies: ["PhoneUseCore"], sources: [
         "GeometryTests.swift", "KeyboardMapTests.swift", "MacrosTests.swift",
-        "MonotonicClockTests.swift", "PixelFrameTests.swift", "ProcessOwnershipTests.swift", "ProcessRunnerTests.swift",
+        "LiveInputTests.swift", "MonotonicClockTests.swift", "PixelFrameTests.swift", "ProcessOwnershipTests.swift", "ProcessRunnerTests.swift",
     ]),
     .testTarget(name: "PhoneUseHIDTests", dependencies: ["PhoneUseHID"]),
     .testTarget(name: "PhoneUseMCPTests", dependencies: ["PhoneUseMCP"]),
