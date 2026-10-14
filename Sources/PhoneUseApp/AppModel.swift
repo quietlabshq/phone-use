@@ -61,7 +61,7 @@ final class AppModel {
     }
 
     var anyPaused: Bool { activity.values.contains { $0.control == .paused } }
-    var needsYouCount: Int { activity.values.filter { if case .helpRequested = $0.control { true } else { false } }.count }
+    var needsYouCount: Int { activity.values.count { if case .helpRequested = $0.control { true } else { false } } }
 
     func start() {
         guard hostState == .starting, dispatcher == nil else { return }

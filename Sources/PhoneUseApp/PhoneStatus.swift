@@ -129,7 +129,6 @@ enum Elapsed {
     static func format(from start: Date?, to now: Date) -> String {
         guard let start else { return "" }
         let seconds = max(0, Int(now.timeIntervalSince(start)))
-        return seconds >= 3600 ? String(format: "%d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)
-            : String(format: "%d:%02d", seconds / 60, seconds % 60)
+        return Duration.seconds(seconds).formatted(.time(pattern: seconds >= 3600 ? .hourMinuteSecond : .minuteSecond))
     }
 }
