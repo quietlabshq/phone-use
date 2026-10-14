@@ -24,3 +24,10 @@ enum AppPaths {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/phone-use")
     }
 }
+
+extension String {
+    var abbreviatingHome: String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return hasPrefix(home) ? "~" + dropFirst(home.count) : self
+    }
+}

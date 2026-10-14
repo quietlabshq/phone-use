@@ -9,11 +9,18 @@ struct PhoneUseApp: App {
         Window("Phone Use", id: "main") {
             ContentView()
                 .environment(delegate.model)
-                .frame(minWidth: 980, minHeight: 640)
-                .preferredColorScheme(.dark)
         }
-        .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 1440, height: 900)
+        .defaultSize(width: 1280, height: 820)
+        .commands {
+            SidebarCommands()
+            InspectorCommands()
+            ToolbarCommands()
+        }
+
+        Settings {
+            SettingsView()
+                .environment(delegate.model)
+        }
 
         MenuBarExtra {
             MenuBarContent().environment(delegate.model)
@@ -49,8 +56,8 @@ private struct MenuBarContent: View {
 
     var body: some View {
         switch model.hostState {
-        case .starting: Text("Starting...")
-        case .serving: Text("Serving agents, \(model.phones.count) phone\(model.phones.count == 1 ? "" : "s")")
+        case .starting: Text("Starting…")
+        case .serving: Text("Serving agents, ^[\(model.phones.count) phone](inflect: true)")
         case .failed: Text("Not serving agents")
         }
         if model.needsYouCount > 0 {
@@ -58,10 +65,16 @@ private struct MenuBarContent: View {
         }
         ForEach(model.phones) { entry in Text(entry.info.name) }
         Divider()
-        Button("Open Phone Use") {
-            openWindow(id: "main")
-            NSApp.activate()
-        }
-        Button("Quit Phone Use") { NSApp.terminate(nil) }.keyboardShortcut("q")
+        Button("Open Phone Use", action: openMainWindow)
+        SettingsLink()
+            .keyboardShortcut(",")
+        Divider()
+        Button("Quit Phone Use") { NSApp.terminate(nil) }
+            .keyboardShortcut("q")
+    }
+
+    private func openMainWindow() {
+        openWindow(id: "main")
+        NSApp.activate()
     }
 }

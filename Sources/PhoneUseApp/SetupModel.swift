@@ -120,7 +120,12 @@ final class SetupModel {
         }
     }
 
-    func setLaunchAtLogin(_ enabled: Bool) {
+    var launchAtLogin: Bool {
+        get { loginItem == .enabled }
+        set { setLaunchAtLogin(newValue) }
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
         do {
             if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             actionError = nil

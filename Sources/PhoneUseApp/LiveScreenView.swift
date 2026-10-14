@@ -26,14 +26,14 @@ final class LiveScreenNSView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.backgroundColor = NSColor(Theme.code).cgColor
+        layer?.backgroundColor = NSColor.black.cgColor
         layer?.masksToBounds = true
         frameLayer.contentsGravity = .resizeAspect
         frameLayer.magnificationFilter = .linear
         frameLayer.minificationFilter = .trilinear
         layer?.addSublayer(frameLayer)
-        touchLayer.fillColor = NSColor(Theme.blue).withAlphaComponent(0.35).cgColor
-        touchLayer.strokeColor = NSColor(Theme.blue).cgColor
+        touchLayer.fillColor = NSColor.systemBlue.withAlphaComponent(0.35).cgColor
+        touchLayer.strokeColor = NSColor.systemBlue.cgColor
         touchLayer.lineWidth = 3
         touchLayer.lineCap = .round
         layer?.addSublayer(touchLayer)

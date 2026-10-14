@@ -14,9 +14,9 @@ open "/Applications/Phone Use.app"
 
 See [the AXe patch notes](patches/axe/README.md). `build-app.sh` signs with your first Developer ID Application identity (override with `PHONE_USE_SIGN_IDENTITY`), so permission grants survive rebuilds; ad-hoc builds are re-prompted after every rebuild. Set `PHONE_USE_NOTARY_PROFILE` to a `notarytool` keychain profile to notarize. Without `PHONE_USE_APP_OUTPUT` the app is written to `.build/Phone Use.app`.
 
-Open **Setup** in the app to grant Camera and Bluetooth access, configure USB iPhones, install the command-line tool (a link at `~/.local/bin/phone-use`), and turn on launch at login. Closing the window keeps the app serving agents from the menu bar.
+Open **Setup** in the app to grant Camera and Bluetooth access, configure USB iPhones, and install the command-line tool (a link at `~/.local/bin/phone-use`). Phone Use > Settings turns on launch at login and points simulators at a custom AXe. Closing the window keeps the app serving agents from the menu bar.
 
-The **Wall** shows every phone live, with which agent is driving it, its task, and its latest action. Click a phone to open it: the Device screen shows the agent's recent tool calls next to the live screen. Click to tap, hold to long press, drag to swipe, and type to send keys. Shift-Command-H goes Home and Command-O opens an app. Your input and agent actions share one queue per phone, so gestures never interleave.
+The **Wall** shows every phone live, with which agent is driving it, its task, and its latest action. Click a phone to open it: the Device screen shows the agent's recent tool calls next to the live screen. Click to tap, hold to long press, drag to swipe, and type to send keys. Shift-Command-H goes Home, Command-O opens an app, and Command-S saves a screenshot. Your input and agent actions share one queue per phone, so gestures never interleave.
 
 You stay in charge of every phone. **Pause** stops agents from acting on a phone (or **Pause all agents** on every phone) until you resume. **Take over** gives you the phone until you click **Hand back**; touching a phone while an agent is using it takes it over automatically. When an agent calls `request_help`, the phone shows **Needs you** on the Wall and in the menu bar. In each case agent actions fail immediately with a message saying why, and screenshots keep working.
 
