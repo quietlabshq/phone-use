@@ -75,7 +75,7 @@ public actor HTTPService {
               let credential = try? credentials.authenticate(String(authorization.dropFirst(7))) else {
             return .init(status: 401, headers: ["www-authenticate": "Bearer"])
         }
-        expireSessions()
+        await expireSessions()
         guard request.path == "/mcp" || request.path == "/leases/release" else { return .init(status: 404) }
         let sessionID = headers["mcp-session-id"]
         if let sessionID {
@@ -86,6 +86,7 @@ public actor HTTPService {
         if request.method == "DELETE", request.path == "/mcp", let sessionID {
             guard sessions[sessionID]?.tasks.isEmpty == true else { return .init(status: 409) }
             sessions.removeValue(forKey: sessionID)
+            await dispatcher.agentDisconnected(.remote(sessionID: sessionID))
             let invocation = context(credential.id, sessionID)
             for phoneID in credential.phoneIDs { try? await dispatcher.releaseControl(phoneID: phoneID, context: invocation) }
             return .init(status: 204)
@@ -170,12 +171,19 @@ public actor HTTPService {
         let tasks = sessions.values.flatMap { $0.tasks.values }
         for task in tasks { task.cancel() }
         for task in tasks { _ = await task.value }
+        let ended = sessions.keys
         sessions.removeAll()
+        for sessionID in ended { await dispatcher.agentDisconnected(.remote(sessionID: sessionID)) }
         await dispatcher.shutdown()
     }
-    private func expireSessions() {
+    /// Ends idle sessions, dropping their help requests and tasks with them.
+    private func expireSessions() async {
         let now = clock()
-        sessions = sessions.filter { !$0.value.tasks.isEmpty || now - $0.value.touched < idleTimeout }
+        let expired = sessions.filter { $0.value.tasks.isEmpty && now - $0.value.touched >= idleTimeout }.keys
+        for sessionID in expired {
+            sessions.removeValue(forKey: sessionID)
+            await dispatcher.agentDisconnected(.remote(sessionID: sessionID))
+        }
     }
     private func context(_ credentialID: String, _ sessionID: String, deadline: TimeInterval? = nil) -> InvocationContext {
         let store = credentials

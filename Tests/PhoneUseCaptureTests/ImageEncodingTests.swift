@@ -30,6 +30,18 @@ import PhoneUseCore
     #expect(decoded.width == 3 && decoded.height == 2)
 }
 
+@Test func frameAdapterKeepsTopRowFirst() throws {
+    let red: [UInt8] = [255, 0, 0, 255], blue: [UInt8] = [0, 0, 255, 255]
+    let provider = try #require(CGDataProvider(data: Data(red + blue) as CFData))
+    let image = try #require(CGImage(width: 1, height: 2, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 4,
+        space: CGColorSpace(name: CGColorSpace.sRGB)!,
+        bitmapInfo: CGBitmapInfo(rawValue: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue),
+        provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+    let frame = try PixelFrameImageAdapter.frame(from: image)
+    #expect([UInt8](frame.pixels.prefix(4)) == red)
+    #expect([UInt8](frame.pixels.suffix(4)) == blue)
+}
+
 @Test func rejectsInvalidImageData() {
     #expect(throws: (any Error).self) { try ImageEncoding.load(Data("invalid".utf8)) }
 }

@@ -9,9 +9,6 @@ Verified on 2026-09-29 on this Mac: Swift 6.4, Xcode 27.1 beta, patched AXe `1.8
 | `env -u PHONE_USE_SIM_UDID swift test` | 140 tests declared; 139 passed and one simulator integration test skipped. |
 | `PHONE_USE_SIM_UDID=842C0EF9-652A-4285-8148-1324C6EA2C4D PHONE_USE_AXE="$PWD/.build/tools/axe/bin/axe" swift test --filter SimulatorIntegration` | Live iPhone 17 SimulatorIntegration passed in 24.323 seconds. |
 | `swift build -c release` | Passed. |
-| `docker run --rm -v "$PWD:/workspace" -w /workspace swift:6.2 swift test` | 75 Linux tests passed in Ubuntu 24.04.5 aarch64 with Swift 6.2.4. |
-| `docker run --rm -v "$PWD:/workspace" -w /workspace swift:6.2 swift build -c release` | Passed for the portable Linux package and fake-phone executable. |
-| `python3 scripts/test-linux-stdio.py -- docker run --rm -i -v "$PWD:/workspace" -w /workspace swift:6.2 sh /workspace/scripts/run-linux-fake-mcp.sh` | Real Linux stdio executable passed initialize, tool listing, fake discovery, screenshot image, action, and error checks. |
 | `mise exec node@24.18.0 -- npm test --prefix relay` | 21 Worker tests passed. |
 | `mise exec node@24.18.0 -- npm run typecheck --prefix relay` | Passed. |
 | Stdio MCP smoke | Initialize, nine-tool catalog, nine invalid calls, Home, open Settings, JPEG screenshot, and clean EOF exit passed. |
@@ -19,7 +16,7 @@ Verified on 2026-09-29 on this Mac: Swift 6.4, Xcode 27.1 beta, patched AXe `1.8
 
 Coverage includes screenshot scaling and rotation, bounds and argument errors, unsupported text without partial typing, per-phone action serialization, HID reports, pointer planning and simulated calibration, configuration persistence, disconnected hardware input with working fake capture, frame freshness, camera authorization errors, subprocess I/O and cancellation, and 256 rapid concurrent subprocess exits.
 
-The Linux check is a hardware-independent portability spike, not Linux phone support. It covers the portable frame/HID/MCP layers and a development-only fake-phone stdio executable. Linux USB/AirPlay capture, BlueZ input, physical-device behavior, and the supported distribution remain open. See the [Linux portability record](linux-portability-spike.md).
+Linux support is paused as of 2026-10-14: the package is macOS-only and the Linux fake-phone executable and scripts were removed. The earlier portability spike is recorded in the [Linux portability record](linux-portability-spike.md).
 
 The first final integration run and a Claude session exposed a subprocess termination race. A stress regression reproduced it before the fix; both the full simulator suite and Claude session passed after replacing `waitUntilExit()` with a prelaunch termination handler. Ordinary UI transitions can still require a second screenshot before deciding whether an action succeeded.
 
@@ -43,7 +40,7 @@ During a Worker outage, direct MCP initialization continued to return 200 while 
 
 The combined run caught a wire mismatch that unit tests had missed: Swift omitted `expiresAt` for non-expiring credentials, while the Worker contract requires JSON `null`. Commit `c4cdcac` encodes the explicit null and adds a regression test against the actual hello frame. Both implementation and review agents approved the fix.
 
-No production Cloudflare account, real Worker deployment, APNs setup, Tailscale/second-machine access, or physical iPhone action was configured or tested. These remain external checks. Task 10 is still owned by the separate Mac Bluetooth transport effort, and `Runtime.transportFactory` remains `nil`; simulator results do not establish physical input support. There is no ESP32 work.
+No production Cloudflare account, real Worker deployment, APNs setup, Tailscale/second-machine access, or physical iPhone action was configured or tested. These remain external checks. `Runtime.transportFactory` now returns the shared `ClassicHIDHost`; simulator results still do not establish physical input support. There is no ESP32 work.
 
 Tailscale and LAN HTTPS setup is documented in [remote access](remote-access.md). No second-machine access or external network configuration has been performed. The local optional Cloudflare relay is implemented and verified; deploying it to a user's account remains external. The [shutdown checkpoint](handoffs/2026-09-29-shutdown.md) and [next-agent prompt](handoffs/2026-09-29-next-agent-prompt.md) are historical records.
 
@@ -63,10 +60,22 @@ FIX No hardware phones configured; input transport not installed by default
 
 ## Physical-device scope
 
-The Mac is to act as the Bluetooth keyboard and mouse. There is no ESP32 work. Task 10 belongs to the separate Bluetooth implementation effort and remains a prerequisite for physical input. This repository supplies the tested `HIDTransport`, composite report descriptor, report encoding, hardware action pipeline, USB capture, configuration, and calibration. Connect the transport through `Runtime.transportFactory` and `HardwareRegistry(config:transportFor:)`.
+The Mac acts as a Classic Bluetooth HID keyboard and absolute mouse (`ClassicHIDHost`), matching TapKit's report layout: keyboard report ID 1 (8 payload bytes) and mouse ID 2 (32 buttons plus 16-bit X/Y on 0...32767). There is no consumer report and no ESP32 work. `HIDReport.payload` excludes the report ID; the host prefixes HIDP DATA INPUT (`0xA1`) on the interrupt L2CAP socket. Connection status is the interrupt channel of the first paired iPhone. Send failures propagate so the hardware action pipeline can release held input at the last absolute point.
 
-Transport contract: `send(_ report: HIDReport) async throws` and `isHostConnected() async -> Bool`. Use `ReportDescriptor.bytes` unchanged with keyboard report ID 1 (8 payload bytes), mouse ID 2 (4 payload bytes), and consumer ID 3 (2 payload bytes). `HIDReport.payload` excludes the report ID; the transport must frame it as required by its Bluetooth API. Connection status must describe the intended iPhone, and send failures must propagate so the hardware action pipeline can release held input.
-
-The default factory currently returns `nil`; do not mistake simulator completion for completed Bluetooth support. Physical capture, pairing/input, AssistiveTouch cursor visibility, shortcuts, pointer gains, and USB reconnect behavior remain unverified on hardware. Follow [the ordered test-day guide](test-day.md) once the transport is integrated and an iPhone is available.
+Physical USB capture (H1) passed on 2026-10-14; see [physical capture](#physical-capture). Pairing/input, AssistiveTouch extra-button Home, shortcuts, absolute-pointer targeting, and USB reconnect behavior remain unverified on hardware. Follow [the ordered test-day guide](test-day.md).
 
 No user MCP configuration or global skill installation was changed. Claude verification used a session-specific MCP configuration pointing at the release executable with `mcp --simulator` and `PHONE_USE_AXE="$PWD/.build/tools/axe/bin/axe"`.
+
+## Physical capture
+
+Verified on 2026-10-14 with an iPhone 15 Pro Max (`iPhone16,2`, name `richard-15`) on iOS 27, connected by USB to this Mac on macOS 27.0. Configuration: `{"phones": [{"name": "richard-15", "captureDeviceName": "richard-15"}]}`.
+
+H1 passed: `phone-use screenshot --hardware` returned a 620x1344 JPEG that matched the phone's screen (Find My, status bar at the top). Input remains untested on this device; `ClassicHIDHost` is wired but has not completed a live pairing pass.
+
+Getting there took three fixes, all recorded in [capture troubleshooting](test-day.md#capture-troubleshooting):
+
+- macOS listed only the phone's Continuity Camera devices, not its screen, even with `kCMIOHardwarePropertyAllowScreenCaptureDevices` set, the phone unlocked and a 20-second wait. QuickTime could not see the screen either. Replugging did not help. Putting the phone to sleep with `idevicediagnostics sleep` and waking it made the screen device appear at once.
+- Capture from this agent session failed with "Camera access denied" because T3 Code (Nightly) lacks the camera entitlement. Running the same command through Terminal.app succeeded.
+- The first screenshot was upside down. `PixelFrameImageAdapter` flipped every frame vertically, which also affected simulator screenshots. Commit `c14b38d` removed the flip and added a regression test; the next physical screenshot was upright.
+
+Still open on hardware: USB reconnect while MCP runs, an automatic sleep-and-wake recovery in phone-use (it currently only reports "devices: none"), and a live pass of Bluetooth input (H2-H6) against `ClassicHIDHost`.

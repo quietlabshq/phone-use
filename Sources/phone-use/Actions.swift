@@ -1,5 +1,5 @@
 import ArgumentParser
-import PhoneUseMCP
+import MCP
 
 struct Screenshot: AsyncParsableCommand {
     @OptionGroup var options: ActionOptions
@@ -43,7 +43,7 @@ struct PressKey: AsyncParsableCommand {
     @Option(name: .customLong("repeat")) var repeatCount = 1
     mutating func run() async throws {
         let values = modifiers.map { $0.split(separator: ",", omittingEmptySubsequences: false).map(String.init) } ?? []
-        try await options.call("press_key", ["key": .string(name), "modifiers": .strings(values), "repeat": .int(repeatCount)])
+        try await options.call("press_key", ["key": .string(name), "modifiers": .array(values.map(Value.string)), "repeat": .int(repeatCount)])
     }
 }
 struct Home: AsyncParsableCommand {

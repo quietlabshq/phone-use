@@ -1,10 +1,6 @@
 import Foundation
 
-#if canImport(Darwin)
 import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
 
 /// Conservatively serializes all local phone access for a user. Keep this object alive
 /// for the entire operation, including backend discovery and asynchronous cleanup.

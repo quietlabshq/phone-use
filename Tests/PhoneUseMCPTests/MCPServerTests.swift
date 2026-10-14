@@ -18,7 +18,7 @@ private actor WireRegistry: PhoneRegistry {
     #expect(await registry.discoveries == 0)
 }
 @Test func wireSchemaDescribesStringArrayAndRejectsExtraProperties() {
-    #expect(MCPServer.tools.count == 9)
+    #expect(MCPServer.tools.count == 12)
     for tool in MCPServer.tools {
         #expect(tool.inputSchema.objectValue?["additionalProperties"] == .bool(false))
     }

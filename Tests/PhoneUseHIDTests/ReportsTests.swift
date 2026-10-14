@@ -9,26 +9,32 @@ struct ReportsTests {
         #expect(KeyboardReport(modifiers: 0, keys: [4, 5, 6, 7, 8, 9]).payload == [0, 0, 4, 5, 6, 7, 8, 9])
     }
 
-    @Test func mouseEncodesSignedMovement() {
-        #expect(MouseReport(buttons: 1, dx: -5, dy: 127, wheel: 0).payload == [1, 0xFB, 0x7F, 0])
-    }
-
-    @Test func consumerUsesLittleEndian() {
-        #expect(ConsumerReport(usage: 0x0223).payload == [0x23, 0x02])
+    @Test func mouseEncodesAbsoluteCoordinatesAnd32Buttons() {
+        #expect(
+            MouseReport(buttons: 1, x: 0x1234, y: 0x7FFF).payload
+                == [1, 0, 0, 0, 0x34, 0x12, 0xFF, 0x7F]
+        )
+        #expect(
+            MouseReport(buttons: MouseReport.homeButton, x: 0, y: 0).payload
+                == [4, 0, 0, 0, 0, 0, 0, 0]
+        )
+        #expect(MouseReport.empty.payload == Array(repeating: 0, count: 8))
     }
 
     @Test func reportsExposeTheirIDAndPayload() {
         let keyboard = HIDReport.keyboard(.empty)
-        let mouse = HIDReport.mouse(MouseReport(buttons: 1, dx: -5, dy: 127, wheel: 0))
-        let consumer = HIDReport.consumer(ConsumerReport(usage: 0x0223))
+        let mouse = HIDReport.mouse(MouseReport(buttons: 1, x: 0x1234, y: 0x7FFF))
         #expect(keyboard.id == .keyboard)
         #expect(mouse.id == .mouse)
-        #expect(consumer.id == .consumer)
         #expect(keyboard.id.rawValue == 1)
         #expect(mouse.id.rawValue == 2)
-        #expect(consumer.id.rawValue == 3)
         #expect(keyboard.payload == KeyboardReport.empty.payload)
-        #expect(mouse.payload == [1, 0xFB, 0x7F, 0])
-        #expect(consumer.payload == [0x23, 0x02])
+        #expect(mouse.payload == [1, 0, 0, 0, 0x34, 0x12, 0xFF, 0x7F])
+    }
+
+    @Test func interruptPacketsPrefixHIDPInputHeader() {
+        let mouse = HIDReport.mouse(MouseReport(buttons: 1, x: 10, y: 20))
+        #expect(HIDP.interruptPacket(for: mouse) == [0xA1, 2] + mouse.payload)
+        #expect(HIDP.interruptPacket(for: .keyboard(.empty)) == [0xA1, 1] + KeyboardReport.empty.payload)
     }
 }

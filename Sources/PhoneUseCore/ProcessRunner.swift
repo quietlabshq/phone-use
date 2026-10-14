@@ -1,10 +1,6 @@
 import Foundation
 
-#if canImport(Darwin)
 import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
 
 public struct ProcessResult: Sendable {
     public let status: Int32
@@ -39,33 +35,15 @@ public struct LiveProcessRunner: ProcessRunner {
             let output = Pipe()
             let errors = Pipe()
             let input = Pipe()
-            #if canImport(Darwin)
             guard fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1) != -1 else {
                 throw PhoneError.commandFailed("Could not configure process input pipe")
             }
-            #endif
             process.standardOutput = output
             process.standardError = errors
             process.standardInput = input
             process.arguments = args
             try await blocking {
-                let path: String
-                if executable.contains("/") {
-                    path = executable
-                } else {
-                    let paths = (ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin")
-                        .split(separator: ":", omittingEmptySubsequences: false)
-                    guard let match = paths.map({ URL(fileURLWithPath: $0.isEmpty ? "." : String($0))
-                        .appendingPathComponent(executable).path })
-                        .first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
-                        throw PhoneError.toolUnavailable(executable)
-                    }
-                    path = match
-                }
-                guard FileManager.default.isExecutableFile(atPath: path) else {
-                    throw PhoneError.toolUnavailable(executable)
-                }
-                process.executableURL = URL(fileURLWithPath: path)
+                process.executableURL = try resolveExecutable(executable)
                 try lifetime.start(process)
             }
             async let stdout = blocking { try output.fileHandleForReading.readToEnd() ?? Data() }
@@ -92,27 +70,6 @@ public struct LiveProcessRunner: ProcessRunner {
 }
 
 private func writeWithoutSIGPIPE(_ data: Data, to handle: FileHandle) throws {
-    #if os(Linux)
-    var blockedSignals = sigset_t()
-    guard sigemptyset(&blockedSignals) == 0, sigaddset(&blockedSignals, SIGPIPE) == 0 else {
-        throw PhoneError.commandFailed("Could not prepare process input pipe")
-    }
-    var originalSignals = sigset_t()
-    guard pthread_sigmask(SIG_BLOCK, &blockedSignals, &originalSignals) == 0 else {
-        throw PhoneError.commandFailed("Could not protect process input pipe")
-    }
-    var pendingBeforeWrite = sigset_t()
-    _ = sigpending(&pendingBeforeWrite)
-    let alreadyPending = sigismember(&pendingBeforeWrite, SIGPIPE) == 1
-    let wasBlocked = sigismember(&originalSignals, SIGPIPE) == 1
-    defer {
-        if !wasBlocked && !alreadyPending {
-            var timeout = timespec()
-            _ = sigtimedwait(&blockedSignals, nil, &timeout)
-        }
-        _ = pthread_sigmask(SIG_SETMASK, &originalSignals, nil)
-    }
-    #endif
     try handle.write(contentsOf: data)
 }
 
@@ -178,4 +135,23 @@ private final class ProcessLifetime: @unchecked Sendable {
             }
         }
     }
+}
+
+/// Resolves a bare command through `PATH`; paths containing `/` are used as given.
+public func resolveExecutable(_ executable: String) throws -> URL {
+    let path: String
+    if executable.contains("/") {
+        path = executable
+    } else {
+        let paths = (ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin")
+            .split(separator: ":", omittingEmptySubsequences: false)
+        guard let match = paths.map({ URL(fileURLWithPath: $0.isEmpty ? "." : String($0))
+            .appendingPathComponent(executable).path })
+            .first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+            throw PhoneError.toolUnavailable(executable)
+        }
+        path = match
+    }
+    guard FileManager.default.isExecutableFile(atPath: path) else { throw PhoneError.toolUnavailable(executable) }
+    return URL(fileURLWithPath: path)
 }

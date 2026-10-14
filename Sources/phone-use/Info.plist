@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleIdentifier</key><string>com.quietlabs.phone-use</string>
+<key>CFBundleIdentifier</key><string>com.quietlabs.phone-use.cli</string>
 <key>NSCameraUsageDescription</key><string>phone-use captures the screen of your USB-connected iPhone.</string>
+<key>NSBluetoothAlwaysUsageDescription</key><string>phone-use uses Bluetooth to expose an AssistiveTouch HID keyboard and mouse to paired iPhones.</string>
 </dict></plist>

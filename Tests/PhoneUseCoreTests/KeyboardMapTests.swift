@@ -62,3 +62,9 @@ import Testing
     #expect(KeyboardMap.modifierUsage(.option) == 226)
     #expect(KeyboardMap.modifierUsage(.command) == 227)
 }
+
+@Test func keyNamesRoundTrip() {
+    for name in ["enter", "escape", "backspace", "tab", "space", "arrow_up", "arrow_down", "arrow_left", "arrow_right", "a", "z"] {
+        #expect(Key(name: name)?.name == name)
+    }
+}

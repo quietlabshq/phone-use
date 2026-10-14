@@ -13,10 +13,18 @@ private actor Transport: HIDTransport {
     var reports: [HIDReport] = []
     let connected: Bool
     var fail = false
-    init(_ connected: Bool = true, fail: Bool = false) { self.connected = connected; self.fail = fail }
+    var failWhenButtonsPressed = false
+    init(_ connected: Bool = true, fail: Bool = false, failWhenButtonsPressed: Bool = false) {
+        self.connected = connected
+        self.fail = fail
+        self.failWhenButtonsPressed = failWhenButtonsPressed
+    }
     func isHostConnected() -> Bool { connected }
     func send(_ report: HIDReport) throws {
         reports.append(report)
+        if failWhenButtonsPressed, case .mouse(let mouse) = report, mouse.buttons != 0 {
+            throw PhoneError.commandFailed("send failed")
+        }
         if fail { fail = false; throw PhoneError.commandFailed("send failed") }
     }
 }
@@ -51,13 +59,11 @@ private func phone(_ transport: Transport, gains: PointerGains? = nil) -> Hardwa
     #expect(await failing.reports.last == .keyboard(.empty))
 }
 @Test func invalidPointerAndActionsNeverSend() async throws {
-    for gains in [PointerGains(pixelsPerCountX: .nan, pixelsPerCountY: 1), PointerGains(pixelsPerCountX: 0.00001, pixelsPerCountY: 1), PointerGains(pixelsPerCountX: 1, pixelsPerCountY: 1)] {
-        let transport = Transport()
-        let subject = phone(transport, gains: gains)
-        await #expect(throws: (any Error).self) { try await subject.perform(.tap(PixelPoint(x: -1, y: 0), count: 1)) }
-        await #expect(throws: (any Error).self) { try await subject.perform(.key(.letter("A"), modifiers: [], repeat: 1)) }
-        #expect(await transport.reports.isEmpty)
-    }
+    let transport = Transport()
+    let subject = phone(transport)
+    await #expect(throws: (any Error).self) { try await subject.perform(.tap(PixelPoint(x: -1, y: 0), count: 1)) }
+    await #expect(throws: (any Error).self) { try await subject.perform(.key(.letter("A"), modifiers: [], repeat: 1)) }
+    #expect(await transport.reports.isEmpty)
 }
 @Test func registryWithoutTransportStillProvidesScreenshots() async throws {
     let registry = HardwareRegistry(config: Config(phones: [PhoneConfig(name: "Mine", captureDeviceName: "USB")]), candidates: {
@@ -72,17 +78,15 @@ private func phone(_ transport: Transport, gains: PointerGains? = nil) -> Hardwa
     let again = await registry.discover()
     #expect(again.phones.first?.info.id == subject.info.id)
 }
-@Test func duplicateCaptureNamesAndSlowUnsafeGainsAreRejected() async throws {
+@Test func duplicateCaptureNamesAreRejected() async throws {
     let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     #expect(throws: (any Error).self) {
         try Config(phones: [PhoneConfig(name: "one", captureDeviceName: "same"), PhoneConfig(name: "two", captureDeviceName: "same")]).save(to: url)
     }
     let transport = Transport()
     #expect(await phone(transport).isInputConnected())
-    for gain in [PointerGains(pixelsPerCountX: 0.00001, pixelsPerCountY: 1), PointerGains(pixelsPerCountX: 1, pixelsPerCountY: 1, stepIntervalMs: 60000)] {
-        await #expect(throws: (any Error).self) { try await phone(transport, gains: gain).perform(.tap(PixelPoint(x: 1, y: 1), count: 1)) }
-    }
-    #expect(await transport.reports.isEmpty)
+    try await phone(transport).perform(.tap(PixelPoint(x: 1, y: 1), count: 1))
+    #expect(await !transport.reports.isEmpty)
 }
 private struct CancelSleep: Sleeper {
     func sleep(milliseconds: Int) async throws { throw CancellationError() }
@@ -98,7 +102,7 @@ private struct CancelSleep: Sleeper {
     let transport = Transport()
     let subject = HardwarePhone(info: PhoneInfo(id: "rotated", name: "Rotated", kind: .hardware,
         screenSize: PixelSize(width: 200, height: 100)), capture: { frame() }, transport: transport,
-        gains: PointerGains(pixelsPerCountX: 1, pixelsPerCountY: 1), sleeper: NoSleep())
+        sleeper: NoSleep())
     _ = try await subject.screenshot()
     await #expect(throws: (any Error).self) {
         try await subject.perform(.tap(PixelPoint(x: 150, y: 50), count: 1))
@@ -112,15 +116,50 @@ private actor RecordingSleeper: Sleeper {
     var delays: [Int] = []
     func sleep(milliseconds: Int) { delays.append(milliseconds) }
 }
-@Test func hardwareHomeUsesSettledKeyboardFallback() async throws {
+@Test func mouseSendFailureReleasesButtonsAtLastPoint() async throws {
+    let transport = Transport(failWhenButtonsPressed: true)
+    await #expect(throws: (any Error).self) {
+        try await phone(transport).perform(.tap(PixelPoint(x: 99, y: 199), count: 1))
+    }
+    let reports = await transport.reports
+    #expect(reports.contains(.mouse(MouseReport(buttons: MouseReport.primaryButton, x: 32767, y: 32767))))
+    #expect(reports.last == .mouse(MouseReport(buttons: 0, x: 32767, y: 32767)))
+}
+
+@Test func hardwareHomePressesAssistiveTouchButtonThree() async throws {
     let transport = Transport()
     let sleeper = RecordingSleeper()
-    let subject = HardwarePhone(info: PhoneInfo(id: "home", name: "Home", kind: .hardware, screenSize: .init(width: 100, height: 200)), capture: { frame() }, transport: transport, sleeper: sleeper)
+    let subject = HardwarePhone(info: PhoneInfo(id: "home", name: "Home", kind: .hardware, screenSize: .init(width: 101, height: 201)), capture: { frame() }, transport: transport, sleeper: sleeper)
     try await subject.perform(.home)
     #expect(await transport.reports == [
-        .keyboard(KeyboardReport(modifiers: 8, keys: [11])), .keyboard(.empty),
-        .keyboard(KeyboardReport(modifiers: 0, keys: [41])), .keyboard(.empty),
-        .keyboard(KeyboardReport(modifiers: 0, keys: [41])), .keyboard(.empty),
+        .mouse(MouseReport(buttons: MouseReport.homeButton, x: 16384, y: 16384)),
+        .mouse(MouseReport(buttons: 0, x: 16384, y: 16384)),
     ])
-    #expect(await sleeper.delays == [12, 800, 12, 800, 12, 800])
+    #expect(await sleeper.delays == [60, 80])
+}
+@Test func registryReloadsConfigurationOnEachDiscovery() async throws {
+    let store = ConfigBox()
+    let registry = HardwareRegistry(loadConfig: { store.config }, candidates: {
+        [CaptureCandidate(id: "usb-1", name: "USB", size: PixelSize(width: 100, height: 200), capture: { frame() })]
+    })
+    let before = await registry.discover()
+    #expect(before.phones.isEmpty)
+    #expect(before.hints.contains { $0.contains("unconfigured") })
+    store.config = Config(phones: [PhoneConfig(name: "Mine", captureDeviceName: "USB")])
+    #expect(await registry.discover().phones.map(\.info.name) == ["Mine"])
+    store.config = Config(phones: [PhoneConfig(name: "Renamed", captureDeviceName: "USB")])
+    let renamed = try #require(await registry.discover().phones.first)
+    #expect(renamed.info.name == "Renamed")
+    // An unchanged entry keeps its phone; changed pointer gains rebuild it.
+    #expect(try #require(await registry.discover().phones.first) as AnyObject === renamed as AnyObject)
+    store.config = Config(phones: [PhoneConfig(name: "Renamed", captureDeviceName: "USB", pointer: PointerGains(pixelsPerCountX: 2, pixelsPerCountY: 2))])
+    #expect(try #require(await registry.discover().phones.first) as AnyObject !== renamed as AnyObject)
+}
+private final class ConfigBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = Config()
+    var config: Config {
+        get { lock.withLock { value } }
+        set { lock.withLock { value = newValue } }
+    }
 }

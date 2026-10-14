@@ -69,7 +69,7 @@ struct Serve: AsyncParsableCommand {
         let ownership = try ProcessOwnership()
         defer { withExtendedLifetime(ownership) {} }
         let authority = host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
-        let service = HTTPService(credentials: store, dispatcher: Runtime.dispatcher(backend), allowedHosts: Set(allowedHost.map { $0.lowercased() } + [authority.lowercased()]), allowedOrigins: Set(allowedOrigin))
+        let service = HTTPService(credentials: store, dispatcher: backend.dispatcher(), allowedHosts: Set(allowedHost.map { $0.lowercased() } + [authority.lowercased()]), allowedOrigins: Set(allowedOrigin))
         if let relayConfig { await service.allowHost(relayConfig.publicAuthority) }
         let listener = try await HTTPListener.start(service: service, host: host, port: port)
         let connector = relayConfig.map { RelayConnector(config: $0, credentials: store, service: service) }
