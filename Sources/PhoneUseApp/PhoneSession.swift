@@ -114,7 +114,6 @@ final class PhoneSession {
     }
 
     func key(_ key: Key, modifiers: [Modifier]) {
-        flushTyping()
         send(.action(.key(key, modifiers: modifiers, repeat: 1)))
     }
 
@@ -123,11 +122,16 @@ final class PhoneSession {
         guard !typed.isEmpty else { return }
         let text = typed
         typed = ""
-        send(.action(.typeText(text)))
+        enqueue(.action(.typeText(text)))
     }
 
+    /// Sends buffered typing first, so text lands before any later tap or key.
     private func send(_ command: DirectCommand) {
-        if case .action = command {} else { flushTyping() }
+        flushTyping()
+        enqueue(command)
+    }
+
+    private func enqueue(_ command: DirectCommand) {
         if inputQueue == nil { startInputQueue() }
         pendingInputs += 1
         inputQueue?.yield(command)
