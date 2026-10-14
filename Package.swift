@@ -4,7 +4,9 @@ import Foundation
 
 let dependencies: [Package.Dependency]
 let targets: [Target]
+let appProducts: [Product]
 #if os(Linux)
+appProducts = []
 dependencies = [
     .package(path: "Vendor/swift-sdk"),
     .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
@@ -25,6 +27,7 @@ targets = [
     .testTarget(name: "PhoneUseMCPTests", dependencies: ["PhoneUseMCP"]),
 ]
 #else
+appProducts = [.executable(name: "PhoneUseApp", targets: ["PhoneUseApp"])]
 dependencies = [
     .package(path: "Vendor/swift-sdk"),
     .package(url: "https://github.com/apple/swift-nio.git", exact: "2.103.0"),
@@ -51,6 +54,9 @@ targets = [
         URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .appendingPathComponent("Sources/phone-use/Info.plist").path,
     ])]),
+    .executableTarget(name: "PhoneUseApp", dependencies: [
+        "PhoneUseCore", "PhoneUseHID", "PhoneUseCapture", "PhoneUseHardware", "PhoneUseMCP", "PhoneUseIPC", "PhoneUseRuntime",
+    ], exclude: ["Info.plist", "PhoneUse.entitlements"]),
     .testTarget(name: "PhoneUseCaptureTests", dependencies: ["PhoneUseCapture", "PhoneUseCore"]),
     .testTarget(name: "PhoneUseCoreTests", dependencies: ["PhoneUseCore"]),
     .testTarget(name: "PhoneUseRemoteTests", dependencies: ["PhoneUseRemote", "PhoneUseCapture", .product(name: "NIOWebSocket", package: "swift-nio")]),
@@ -65,7 +71,7 @@ targets = [
 let package = Package(
     name: "phone-use",
     platforms: [.macOS(.v14)],
-    products: [.executable(name: "phone-use", targets: ["phone-use"])],
+    products: [.executable(name: "phone-use", targets: ["phone-use"])] + appProducts,
     dependencies: dependencies,
     targets: targets
 )
