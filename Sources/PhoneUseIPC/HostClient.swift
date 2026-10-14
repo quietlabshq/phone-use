@@ -9,7 +9,7 @@ public enum HostClientError: Error, CustomStringConvertible, Sendable {
     public var description: String {
         switch self {
         case .appNotFound:
-            "Phone Use.app is not running and could not be found. Install it in /Applications or set PHONE_USE_APP to its path, then retry."
+            "Phone Use.app is not running and could not be found. Install it in /Applications or ~/Applications, or set PHONE_USE_APP to its path, then retry."
         case let .appDidNotStart(path, detail):
             "Phone Use.app at \(path) did not start serving phones: \(detail). Open it to see its status."
         }
@@ -18,7 +18,6 @@ public enum HostClientError: Error, CustomStringConvertible, Sendable {
 
 /// Connects command-line clients to the app, launching it when it is not running.
 public enum HostClient {
-    public static let bundleIdentifier = "com.quietlabs.phone-use"
 
     /// Returns a connected socket descriptor. The caller owns and must close it.
     public static func connect(socket: URL = HostPaths.socket, launch: Bool = true, timeout: Duration = .seconds(10)) async throws -> Int32 {
@@ -41,26 +40,18 @@ public enum HostClient {
         throw HostClientError.appDidNotStart(app.path, String(describing: lastError))
     }
 
-    /// The app that contains this executable, then `PHONE_USE_APP`, then the registered bundle.
+    /// The app that contains this executable, then `PHONE_USE_APP`, then the standard
+    /// install locations. Never searches Spotlight: any bundle can claim our identifier.
     public static func locateApp() -> URL? {
-        if let override = ProcessInfo.processInfo.environment["PHONE_USE_APP"], !override.isEmpty {
-            return URL(fileURLWithPath: override)
-        }
         let executable = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
         let bundle = executable.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         if bundle.pathExtension == "app" { return bundle }
-        let lookup = Process()
-        lookup.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
-        lookup.arguments = ["kMDItemCFBundleIdentifier == '\(bundleIdentifier)'"]
-        let pipe = Pipe()
-        lookup.standardOutput = pipe
-        lookup.standardError = FileHandle.nullDevice
-        guard (try? lookup.run()) != nil else { return nil }
-        let output = pipe.fileHandleForReading.readDataToEndOfFile()
-        lookup.waitUntilExit()
-        return String(decoding: output, as: UTF8.self).split(separator: "\n")
-            .map { URL(fileURLWithPath: String($0)) }
-            .first { $0.pathExtension == "app" }
+        if let override = ProcessInfo.processInfo.environment["PHONE_USE_APP"], !override.isEmpty {
+            return URL(fileURLWithPath: override)
+        }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [URL(fileURLWithPath: "/Applications/Phone Use.app"), home.appendingPathComponent("Applications/Phone Use.app")]
+            .first { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     /// Copies stdin to the socket and the socket to stdout until either side ends.
