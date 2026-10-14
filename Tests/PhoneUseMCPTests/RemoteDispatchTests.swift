@@ -46,6 +46,19 @@ private func waitUntil(_ predicate: () async -> Bool) async {
 }
 private func message(_ output: ToolOutput) -> String { if case let .error(value) = output { return value }; Issue.record("Expected error"); return "" }
 
+@Test func helpAndTasksNeedTheControlLease() async throws {
+    let phone = GatedPhone(), policy = Policy()
+    await phone.unblock()
+    let dispatcher = ToolDispatcher(registry: RemoteRegistry(phones: [phone]), now: { policy.now() })
+    #expect(await dispatcher.call("tap", ["x": .int(0), "y": .int(0), "phone_id": .string("one")], context: policy.context()) == .text("OK"))
+    for (tool, args) in [("request_help", ["reason": .string("Passcode")]), ("set_task", ["title": .string("Mine now")]), ("cancel_help", [:])] as [(String, [String: ToolArg])] {
+        #expect(message(await dispatcher.call(tool, args.merging(["phone_id": .string("one")]) { $1 }, context: policy.context("b"))).contains("lease"))
+    }
+    #expect(await dispatcher.control(of: "one") == .agents)
+    #expect(await dispatcher.task(of: "one") == nil)
+    #expect(await dispatcher.call("request_help", ["reason": .string("Passcode"), "phone_id": .string("one")], context: policy.context()) != .error(""))
+    #expect(await dispatcher.control(of: "one") == .helpRequested(reason: "Passcode", agent: .remote(sessionID: "a")))
+}
 @Test func remoteLeasesRequireValidMutationAndRespectSessions() async throws {
     let phone = GatedPhone(), policy = Policy()
     await phone.unblock()

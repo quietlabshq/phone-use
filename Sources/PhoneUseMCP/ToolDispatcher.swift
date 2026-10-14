@@ -43,7 +43,7 @@ public actor ToolDispatcher {
     }
     deinit { eventSink.finish() }
     public func call(_ name: String, _ args: [String: ToolArg], context: InvocationContext? = nil, agent: AgentIdentity? = nil) async -> ToolOutput {
-        let agent = agent ?? context.map { AgentIdentity(id: "remote:\($0.sessionID)", name: "remote") } ?? AgentIdentity(id: "", name: "agent")
+        let agent = agent ?? context.map { AgentIdentity.remote(sessionID: $0.sessionID) } ?? AgentIdentity(id: "", name: "agent")
         var record: ToolCallRecord?
         let output = await perform(name, args, context: context, agent: agent, record: &record)
         if let record { finish(record, output) }
@@ -121,15 +121,19 @@ public actor ToolDispatcher {
                 let jpeg = try imageEncoder.jpeg(frame, maxLongEdge: 1344, quality: 0.8)
                 record?.outcome = .succeeded("\(actual.width)×\(actual.height) · \(max(1, jpeg.count / 1024)) KB")
                 return .jpeg(jpeg, note: "Screenshot \(actual.width)x\(actual.height). Coordinates: x 0-\(actual.width - 1), y 0-\(actual.height - 1).")
+            // These change who drives the phone, so they need the control lease like actions do.
             case "request_help":
                 let reason = string("reason").trimmingCharacters(in: .whitespacesAndNewlines)
                 guard (1...200).contains(reason.count) else { throw invalid("reason must be 1-200 characters") }
+                leaseToken = try admitMutation(context, phoneID: phone.info.id)
                 return .text(try requestHelp(phone.info.id, reason: reason, agent: agent))
             case "cancel_help":
+                leaseToken = try admitMutation(context, phoneID: phone.info.id)
                 return .text(try cancelHelp(phone.info.id, agent: agent))
             case "set_task":
                 let title = string("title").trimmingCharacters(in: .whitespacesAndNewlines)
                 guard title.count <= 80 else { throw invalid("title must be at most 80 characters") }
+                leaseToken = try admitMutation(context, phoneID: phone.info.id)
                 setTask(phone.info.id, title.isEmpty ? nil : TaskLabel(title: title, agent: agent, since: Date()))
                 return .text(title.isEmpty ? "Task cleared." : "Task set.")
             case "tap": action = try .tap(point("x", "y"), count: bounded("count", default: 1, range: 1...3))
