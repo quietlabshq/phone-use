@@ -43,7 +43,8 @@ public enum HostClient {
     /// The app that contains this executable, then `PHONE_USE_APP`, then the standard
     /// install locations. Never searches Spotlight: any bundle can claim our identifier.
     public static func locateApp() -> URL? {
-        let executable = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+        // argv[0] is a bare name when run from PATH; the loader knows the real file.
+        let executable = (Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])).resolvingSymlinksInPath()
         let bundle = executable.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         if bundle.pathExtension == "app" { return bundle }
         if let override = ProcessInfo.processInfo.environment["PHONE_USE_APP"], !override.isEmpty {

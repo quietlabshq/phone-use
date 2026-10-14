@@ -113,3 +113,20 @@ private func text(_ content: [Tool.Content]) -> String {
     defer { try? FileManager.default.removeItem(at: directory) }
     #expect(throws: SocketError.self) { try HostPaths.preparePrivateDirectory(directory) }
 }
+
+@Test(.timeLimit(.minutes(1))) func closingUnblocksAWriteToAPeerThatStoppedReading() async throws {
+    var pair: [Int32] = [0, 0]
+    #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0)
+    defer { close(pair[1]) }
+    var on: Int32 = 1
+    setsockopt(pair[0], SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+    let io = SocketIO(fd: pair[0])
+    try io.start(message: { _ in }, finished: {})
+    // pair[1] never reads, so this fills the socket buffer and blocks.
+    let write = Task { try await io.write(Data(count: 64 << 20)) }
+    try await Task.sleep(for: .milliseconds(200))
+    let start = ContinuousClock.now
+    io.close()
+    await #expect(throws: (any Error).self) { try await write.value }
+    #expect(ContinuousClock.now - start < .seconds(5))
+}

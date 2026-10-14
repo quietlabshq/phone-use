@@ -36,6 +36,8 @@ final class SocketIO: @unchecked Sendable {
     private let writeQueue = DispatchQueue(label: "phone-use.socket.write")
     private var source: (any DispatchSourceRead)?
     private var closed = false // Guarded by writeQueue.
+    private let descriptorLock = NSLock()
+    private var descriptorClosed = false // Guarded by descriptorLock.
     private var pending = Data() // Guarded by readQueue.
 
     init(fd: Int32) { self.fd = fd }
@@ -64,9 +66,9 @@ final class SocketIO: @unchecked Sendable {
                 }
             }
         }
-        source.setCancelHandler { [fd, writeQueue] in
+        source.setCancelHandler { [self] in
             // Close after any queued write has finished.
-            writeQueue.async { Darwin.close(fd) }
+            writeQueue.async { self.closeDescriptor() }
         }
         writeQueue.sync { self.source = source }
         source.resume()
@@ -83,10 +85,21 @@ final class SocketIO: @unchecked Sendable {
     }
 
     func close() {
+        // Wake a write blocked on a peer that stopped reading; the descriptor itself is
+        // closed on writeQueue, after that write gives up.
+        descriptorLock.withLock { if !descriptorClosed { _ = Darwin.shutdown(fd, SHUT_RDWR) } }
         writeQueue.async { [self] in
             guard !closed else { return }
             closed = true
-            if let source { source.cancel() } else { Darwin.close(fd) }
+            if let source { source.cancel() } else { closeDescriptor() }
+        }
+    }
+
+    private func closeDescriptor() {
+        descriptorLock.withLock {
+            guard !descriptorClosed else { return }
+            descriptorClosed = true
+            Darwin.close(fd)
         }
     }
 }

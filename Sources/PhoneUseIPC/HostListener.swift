@@ -38,7 +38,11 @@ public final class HostListener: @unchecked Sendable {
     private func acceptPending(_ session: @escaping @Sendable (SocketTransport) async -> Void) {
         while true {
             let client = accept(fd, nil, nil)
-            guard client >= 0 else { return }
+            guard client >= 0 else {
+                // Out of descriptors: the connection stays queued, so pause instead of spinning.
+                if errno == EMFILE || errno == ENFILE { usleep(100_000) }
+                return
+            }
             _ = fcntl(client, F_SETFD, FD_CLOEXEC)
             var on: Int32 = 1
             setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))

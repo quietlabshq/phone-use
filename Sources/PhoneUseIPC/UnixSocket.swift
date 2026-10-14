@@ -79,8 +79,10 @@ enum UnixSocket {
         return getpeereid(fd, &uid, &gid) == 0 && uid == geteuid()
     }
 
-    /// Writes all bytes, waiting on `poll` while a nonblocking socket is full.
-    static func writeAll(_ fd: Int32, _ data: Data) throws {
+    /// Writes all bytes, waiting on `poll` while a nonblocking socket is full. A peer
+    /// that stops reading fails the write after `timeout` instead of blocking forever.
+    static func writeAll(_ fd: Int32, _ data: Data, timeout: Duration = .seconds(30)) throws {
+        let deadline = ContinuousClock.now + timeout
         try data.withUnsafeBytes { raw in
             guard var pointer = raw.baseAddress else { return }
             var remaining = raw.count
@@ -89,6 +91,7 @@ enum UnixSocket {
                 if written > 0 {
                     pointer += written; remaining -= written
                 } else if written < 0 && (errno == EAGAIN || errno == EINTR) {
+                    guard ContinuousClock.now < deadline else { throw SocketError("write to socket: peer stopped reading", ETIMEDOUT) }
                     var descriptor = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
                     _ = poll(&descriptor, 1, 1000)
                 } else {
