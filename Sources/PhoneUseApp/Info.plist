@@ -14,7 +14,6 @@
 	<key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
 	<key>LSMinimumSystemVersion</key><string>14.0</string>
 	<key>NSHighResolutionCapable</key><true/>
-	<key>ATSApplicationFontsPath</key><string>Fonts</string>
 	<key>NSCameraUsageDescription</key><string>Phone Use reads the screen of your USB-connected iPhone so you and your agents can see it.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key><string>Phone Use acts as a Bluetooth keyboard and mouse so it can tap and type on your paired iPhone.</string>
 </dict>

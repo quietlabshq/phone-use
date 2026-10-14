@@ -1,6 +1,6 @@
 #!/bin/bash
-# Builds "Phone Use.app" from SwiftPM output, embeds the phone-use CLI, the Geist fonts, and
-# the patched AXe (when scripts/build-axe.sh has run), and signs everything with the hardened runtime.
+# Builds "Phone Use.app" from SwiftPM output, embeds the phone-use CLI and the patched
+# AXe (when scripts/build-axe.sh has run), and signs everything with the hardened runtime.
 #
 # Environment:
 #   PHONE_USE_SIGN_IDENTITY  codesign identity; defaults to the first "Developer ID
@@ -34,7 +34,6 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Helpers"
 cp "$repo_root/Sources/PhoneUseApp/Info.plist" "$app/Contents/Info.plist"
 cp "$bin/PhoneUseApp" "$app/Contents/MacOS/PhoneUseApp"
 cp "$bin/phone-use" "$app/Contents/MacOS/phone-use"
-cp -R "$repo_root/Sources/PhoneUseApp/Fonts" "$app/Contents/Resources/Fonts"
 if [[ -x "$axe_dir/axe" ]]; then
     cp -R "$axe_dir" "$app/Contents/Helpers/axe"
 else
