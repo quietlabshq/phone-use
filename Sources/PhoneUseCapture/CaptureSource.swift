@@ -15,13 +15,35 @@ public enum ScreenCaptureDevices {
     }
 }
 
+/// Continuous frames for a live view. Streams keep only the newest frame so a slow
+/// consumer never falls behind the device.
+public protocol LiveFrameSource: Sendable {
+    func liveFrames() async throws -> AsyncStream<CGImage>
+}
+
 final class FrameStore: @unchecked Sendable {
     private let lock = NSLock()
     private var generation: UInt64 = 0
     private var image: CGImage?
+    private var subscribers: [UUID: AsyncStream<CGImage>.Continuation] = [:]
     var version: UInt64 { lock.withLock { generation } }
-    func publish(_ image: CGImage) { lock.withLock { self.image = image; generation &+= 1 } }
+    var subscriberCount: Int { lock.withLock { subscribers.count } }
+    func publish(_ image: CGImage) {
+        let targets = lock.withLock { () -> [AsyncStream<CGImage>.Continuation] in
+            self.image = image; generation &+= 1
+            return Array(subscribers.values)
+        }
+        for target in targets { target.yield(image) }
+    }
     func frame(after version: UInt64) -> CGImage? { lock.withLock { generation != version ? image : nil } }
+    func subscribe() -> AsyncStream<CGImage> {
+        let (stream, continuation) = AsyncStream.makeStream(of: CGImage.self, bufferingPolicy: .bufferingNewest(1))
+        let id = UUID()
+        continuation.onTermination = { [weak self] _ in self?.lock.withLock { _ = self?.subscribers.removeValue(forKey: id) } }
+        let current = lock.withLock { subscribers[id] = continuation; return image }
+        if let current { continuation.yield(current) }
+        return stream
+    }
 }
 
 public final class CaptureSource: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
@@ -38,7 +60,7 @@ public final class CaptureSource: NSObject, AVCaptureVideoDataOutputSampleBuffer
         super.init()
         // AVCaptureDeviceInput can trigger TCC. Refuse early if the embedding executable lacks metadata.
         guard Bundle.main.object(forInfoDictionaryKey: "NSCameraUsageDescription") != nil else {
-            throw PhoneError.commandFailed("Camera usage metadata missing. Run the packaged phone-use executable.")
+            throw PhoneError.commandFailed("Camera usage metadata missing. Run Phone Use.app or the packaged phone-use executable.")
         }
         try Self.checkAuthorization(AVCaptureDevice.authorizationStatus(for: .video))
         try queue.sync {
@@ -46,7 +68,7 @@ public final class CaptureSource: NSObject, AVCaptureVideoDataOutputSampleBuffer
             do {
                 input = try AVCaptureDeviceInput(device: device)
             } catch {
-                throw PhoneError.commandFailed("Could not open iPhone capture. Unlock the iPhone and trust this Mac; enable phone-use in System Settings > Privacy & Security > Camera. Details: \(error.localizedDescription)")
+                throw PhoneError.commandFailed("Could not open iPhone capture. Unlock the iPhone and trust this Mac; enable Phone Use in System Settings > Privacy & Security > Camera. Details: \(error.localizedDescription)")
             }
             session.beginConfiguration()
             defer { session.commitConfiguration() }
@@ -61,20 +83,29 @@ public final class CaptureSource: NSObject, AVCaptureVideoDataOutputSampleBuffer
     }
     static func checkAuthorization(_ status: AVAuthorizationStatus) throws {
         if status == .denied || status == .restricted {
-            throw PhoneError.commandFailed("Camera access denied. Enable phone-use in System Settings > Privacy & Security > Camera.")
+            throw PhoneError.commandFailed("Camera access denied. Enable Phone Use in System Settings > Privacy & Security > Camera.")
         }
     }
-    public func latestFrame(timeoutMs: Int = 3000) async throws -> CGImage {
-        guard timeoutMs > 0 else { throw PhoneError.commandFailed("Capture timeout must be positive") }
+    private func start() async throws {
         let authorization = AVCaptureDevice.authorizationStatus(for: .video)
         try Self.checkAuthorization(authorization)
         if authorization == .notDetermined {
             guard await AVCaptureDevice.requestAccess(for: .video) else {
-                throw PhoneError.commandFailed("Camera access denied. Enable phone-use in System Settings > Privacy & Security > Camera.")
+                throw PhoneError.commandFailed("Camera access denied. Enable Phone Use in System Settings > Privacy & Security > Camera.")
             }
         }
-        let version = frames.version
         queue.async { [self] in if !session.isRunning { session.startRunning() } }
+    }
+    /// Every captured frame, starting with the most recent one.
+    public func frameStream() async throws -> AsyncStream<CGImage> {
+        let stream = frames.subscribe()
+        try await start()
+        return stream
+    }
+    public func latestFrame(timeoutMs: Int = 3000) async throws -> CGImage {
+        guard timeoutMs > 0 else { throw PhoneError.commandFailed("Capture timeout must be positive") }
+        let version = frames.version
+        try await start()
         let deadline = ContinuousClock.now + .milliseconds(timeoutMs)
         while ContinuousClock.now < deadline {
             try Task.checkCancellation()
