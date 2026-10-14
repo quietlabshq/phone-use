@@ -1,7 +1,6 @@
 public enum ReportID: UInt8, Sendable {
     case keyboard = 1
     case mouse = 2
-    case consumer = 3
 }
 
 public struct KeyboardReport: Sendable, Equatable {
@@ -22,45 +21,44 @@ public struct KeyboardReport: Sendable, Equatable {
 }
 
 public struct MouseReport: Sendable, Equatable {
-    public let buttons: UInt8
-    public let dx: Int8
-    public let dy: Int8
-    public let wheel: Int8
+    public static let axisMax: UInt16 = 32767
+    public static let primaryButton: UInt32 = 1
+    public static let homeButton: UInt32 = 1 << 2
 
-    public init(buttons: UInt8, dx: Int8, dy: Int8, wheel: Int8) {
+    public let buttons: UInt32
+    public let x: UInt16
+    public let y: UInt16
+
+    public init(buttons: UInt32, x: UInt16, y: UInt16) {
         self.buttons = buttons
-        self.dx = dx
-        self.dy = dy
-        self.wheel = wheel
+        self.x = x
+        self.y = y
     }
+
+    public static let empty = MouseReport(buttons: 0, x: 0, y: 0)
 
     public var payload: [UInt8] {
-        [buttons, UInt8(bitPattern: dx), UInt8(bitPattern: dy), UInt8(bitPattern: wheel)]
-    }
-}
-
-public struct ConsumerReport: Sendable, Equatable {
-    public let usage: UInt16
-
-    public init(usage: UInt16) {
-        self.usage = usage
-    }
-
-    public var payload: [UInt8] {
-        [UInt8(truncatingIfNeeded: usage), UInt8(usage >> 8)]
+        [
+            UInt8(truncatingIfNeeded: buttons),
+            UInt8(truncatingIfNeeded: buttons >> 8),
+            UInt8(truncatingIfNeeded: buttons >> 16),
+            UInt8(truncatingIfNeeded: buttons >> 24),
+            UInt8(truncatingIfNeeded: x),
+            UInt8(x >> 8),
+            UInt8(truncatingIfNeeded: y),
+            UInt8(y >> 8),
+        ]
     }
 }
 
 public enum HIDReport: Sendable, Equatable {
     case keyboard(KeyboardReport)
     case mouse(MouseReport)
-    case consumer(ConsumerReport)
 
     public var id: ReportID {
         switch self {
         case .keyboard: .keyboard
         case .mouse: .mouse
-        case .consumer: .consumer
         }
     }
 
@@ -68,7 +66,14 @@ public enum HIDReport: Sendable, Equatable {
         switch self {
         case .keyboard(let report): report.payload
         case .mouse(let report): report.payload
-        case .consumer(let report): report.payload
         }
+    }
+}
+
+public enum HIDP {
+    public static let dataInput: UInt8 = 0xA1
+
+    public static func interruptPacket(for report: HIDReport) -> [UInt8] {
+        [dataInput, report.id.rawValue] + report.payload
     }
 }

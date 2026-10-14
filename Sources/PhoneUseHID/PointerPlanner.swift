@@ -31,62 +31,83 @@ public struct TimedReport: Equatable, Sendable {
     }
 }
 
-/// Plans require validated gains and coordinates requiring at most one million counts per axis.
+/// Plans absolute-pointer reports on the 0...32767 HID axis. Pixel (0, 0) is
+/// the top-left of `bounds`; the opposite corner is axis max.
 public enum PointerPlanner {
-    public static func resetToCorner() -> [TimedReport] {
-        Array(repeating: mouse(dx: -127, dy: -127, delay: 8), count: 40)
+    public static func hidPoint(_ point: PixelPoint, bounds: PixelSize) -> (UInt16, UInt16) {
+        (axis(point.x, extent: bounds.width), axis(point.y, extent: bounds.height))
     }
 
-    public static func move(to point: PixelPoint, gains: PointerGains) -> [TimedReport] {
-        counts(x: count(Double(point.x), gain: gains.pixelsPerCountX),
-               y: count(Double(point.y), gain: gains.pixelsPerCountY), gains: gains)
+    public static func move(to point: PixelPoint, bounds: PixelSize) -> [TimedReport] {
+        [mouse(point, bounds: bounds, delay: 8)]
     }
 
-    public static func tap(_ point: PixelPoint, count: Int = 1, gains: PointerGains) -> [TimedReport] {
+    public static func tap(_ point: PixelPoint, count: Int = 1, bounds: PixelSize) -> [TimedReport] {
         precondition((0...1000).contains(count))
-        return resetToCorner() + move(to: point, gains: gains)
-            + (0..<count).flatMap { _ in [mouse(buttons: 1, delay: 60), mouse(delay: 80)] }
+        let (x, y) = hidPoint(point, bounds: bounds)
+        return move(to: point, bounds: bounds)
+            + (0..<count).flatMap { _ in
+                [mouse(buttons: MouseReport.primaryButton, x: x, y: y, delay: 60),
+                 mouse(buttons: 0, x: x, y: y, delay: 80)]
+            }
     }
 
-    public static func longPress(_ point: PixelPoint, ms: Int, gains: PointerGains) -> [TimedReport] {
+    public static func longPress(_ point: PixelPoint, ms: Int, bounds: PixelSize) -> [TimedReport] {
         precondition(ms >= 0)
-        return resetToCorner() + move(to: point, gains: gains) + [mouse(buttons: 1, delay: ms), mouse()]
+        let (x, y) = hidPoint(point, bounds: bounds)
+        return move(to: point, bounds: bounds)
+            + [mouse(buttons: MouseReport.primaryButton, x: x, y: y, delay: ms),
+               mouse(buttons: 0, x: x, y: y)]
     }
 
-    public static func swipe(from: PixelPoint, to: PixelPoint, ms: Int, gains: PointerGains) -> [TimedReport] {
+    public static func swipe(from: PixelPoint, to: PixelPoint, ms: Int, bounds: PixelSize) -> [TimedReport] {
         precondition(ms >= 0)
-        var movement = counts(x: count(Double(to.x) - Double(from.x), gain: gains.pixelsPerCountX),
-                              y: count(Double(to.y) - Double(from.y), gain: gains.pixelsPerCountY), gains: gains, buttons: 1)
-        if movement.isEmpty { movement = [mouse(buttons: 1)] }
-        movement = movement.enumerated().map { index, report in
-            TimedReport(report: report.report, delayAfterMs: ms / movement.count + (index < ms % movement.count ? 1 : 0))
+        let steps = max(2, ms / 8 + (ms % 8 == 0 ? 0 : 1))
+        let delays = distribute(ms, across: steps)
+        let drag = (0..<steps).map { index in
+            let t = Double(index) / Double(steps - 1)
+            let point = PixelPoint(
+                x: lerp(from.x, to.x, t),
+                y: lerp(from.y, to.y, t)
+            )
+            let (x, y) = hidPoint(point, bounds: bounds)
+            return mouse(buttons: MouseReport.primaryButton, x: x, y: y, delay: delays[index])
         }
-        return resetToCorner() + move(to: from, gains: gains) + [mouse(buttons: 1)] + movement + [mouse()]
+        let (endX, endY) = hidPoint(to, bounds: bounds)
+        return move(to: from, bounds: bounds) + drag + [mouse(buttons: 0, x: endX, y: endY)]
     }
 
-    static func counts(x: Int, y: Int, gains: PointerGains, buttons: UInt8 = 0) -> [TimedReport] {
-        precondition((try? gains.validate()) != nil)
-        precondition(abs(x) <= 1_000_000 && abs(y) <= 1_000_000)
-        var x = x
-        var y = y
-        var reports: [TimedReport] = []
-        while x != 0 || y != 0 {
-            let dx = min(gains.stepCounts, max(-gains.stepCounts, x))
-            let dy = min(gains.stepCounts, max(-gains.stepCounts, y))
-            reports.append(mouse(buttons: buttons, dx: dx, dy: dy, delay: gains.stepIntervalMs))
-            x -= dx
-            y -= dy
-        }
-        return reports
+    public static func home(at point: PixelPoint, bounds: PixelSize) -> [TimedReport] {
+        let (x, y) = hidPoint(point, bounds: bounds)
+        return [
+            mouse(buttons: MouseReport.homeButton, x: x, y: y, delay: 60),
+            mouse(buttons: 0, x: x, y: y, delay: 80),
+        ]
     }
 
-    private static func count(_ pixels: Double, gain: Double) -> Int {
-        let value = (pixels / gain).rounded()
-        precondition(value.isFinite && abs(value) <= 1_000_000)
-        return Int(value)
+    private static func axis(_ pixel: Int, extent: Int) -> UInt16 {
+        guard extent > 1 else { return 0 }
+        let t = min(1, max(0, Double(pixel) / Double(extent - 1)))
+        return UInt16((t * Double(MouseReport.axisMax)).rounded())
     }
 
-    private static func mouse(buttons: UInt8 = 0, dx: Int = 0, dy: Int = 0, delay: Int = 0) -> TimedReport {
-        TimedReport(report: .mouse(MouseReport(buttons: buttons, dx: Int8(dx), dy: Int8(dy), wheel: 0)), delayAfterMs: delay)
+    private static func lerp(_ from: Int, _ to: Int, _ t: Double) -> Int {
+        Int((Double(from) + (Double(to) - Double(from)) * t).rounded())
+    }
+
+    private static func distribute(_ total: Int, across count: Int) -> [Int] {
+        guard count > 0 else { return [] }
+        let base = total / count
+        let remainder = total % count
+        return (0..<count).map { $0 < remainder ? base + 1 : base }
+    }
+
+    private static func mouse(_ point: PixelPoint, bounds: PixelSize, buttons: UInt32 = 0, delay: Int = 0) -> TimedReport {
+        let (x, y) = hidPoint(point, bounds: bounds)
+        return mouse(buttons: buttons, x: x, y: y, delay: delay)
+    }
+
+    private static func mouse(buttons: UInt32, x: UInt16, y: UInt16, delay: Int = 0) -> TimedReport {
+        TimedReport(report: .mouse(MouseReport(buttons: buttons, x: x, y: y)), delayAfterMs: delay)
     }
 }
