@@ -1,4 +1,4 @@
-// swift-tools-version: 6.1
+// swift-tools-version: 6.2
 import PackageDescription
 import Foundation
 
@@ -44,7 +44,7 @@ let targets: [Target] = [
 
 let package = Package(
     name: "phone-use",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v26)],
     products: [
         .executable(name: "phone-use", targets: ["phone-use"]),
         .executable(name: "PhoneUseApp", targets: ["PhoneUseApp"]),

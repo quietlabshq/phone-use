@@ -4,7 +4,7 @@ Phone Use lets AI agents and you control iPhone simulators and physical iPhones 
 
 ## Install the app
 
-Requires macOS 14+, Xcode with an iPhone simulator, and Swift 6.1+. First build the pinned AXe with native multi-tap support; the app bundles it. The helper needs XcodeGen; the command below uses it through a temporary Nix environment. If XcodeGen is already on `PATH`, run `scripts/build-axe.sh` directly.
+Requires macOS 26+, Xcode 26+ with an iPhone simulator, and Swift 6.2+. First build the pinned AXe with native multi-tap support; the app bundles it. The helper needs XcodeGen; the command below uses it through a temporary Nix environment. If XcodeGen is already on `PATH`, run `scripts/build-axe.sh` directly.
 
 ```sh
 nix shell nixpkgs#xcodegen -c scripts/build-axe.sh
