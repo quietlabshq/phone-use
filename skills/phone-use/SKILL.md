@@ -5,7 +5,7 @@ description: Operate iPhone simulators and configured physical iPhones through t
 
 # Phone use
 
-Start with `list_phones`, select the intended phone, then call `screenshot`. Pass its `phone_id` consistently; it is required when multiple phones are available. Discovery or capture alone does not establish that hardware input works. For physical setup or calibration failures, read [the test-day guide](../../docs/test-day.md).
+Start with `list_phones`, select the intended phone, then call `screenshot`. Pass its `phone_id` consistently; it is required when multiple phones are available. Discovery or capture alone does not establish that hardware input works. For physical setup or pairing failures, read [the test-day guide](../../docs/test-day.md).
 
 Use a screenshot-decide-one-action-screenshot loop. Inspect the new screenshot to verify the action before continuing. Prefer `open_app` for launching apps and `press_home` for recovery. Tap the center of a visible target. If a tap fails, take a fresh screenshot and retry once with fresh coordinates; if it fails again, stop and report what happened.
 

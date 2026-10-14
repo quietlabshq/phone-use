@@ -69,7 +69,7 @@ For agent operating instructions, see the [phone-use skill](skills/phone-use/SKI
 
 ## Physical iPhones
 
-USB supplies screen capture. Bluetooth HID supplies input separately; the default build has no installed input transport. Capture availability does not mean input is connected. The Mac Bluetooth implementation is owned by a separate agent and is required for physical input; see the [physical iPhone test-day guide](docs/test-day.md).
+USB supplies screen capture. Classic Bluetooth HID supplies input separately: this Mac advertises itself as **phone-use HID Interface**, an absolute-coordinate mouse plus a US keyboard. Capture availability does not mean input is connected. See the [physical iPhone test-day guide](docs/test-day.md).
 
 Connect, unlock, and trust the iPhone. Grant Camera access when capturing. macOS asks the app that launched `phone-use` for it, so run hardware capture from a terminal such as Terminal.app; apps without the camera entitlement, such as T3 Code, are denied without a prompt. If capture finds no screen device, see [capture troubleshooting](docs/test-day.md#capture-troubleshooting). Save configuration at `~/.config/phone-use/config.json` using the capture device name reported by `doctor`:
 
@@ -83,7 +83,7 @@ Connect, unlock, and trust the iPhone. Grant Camera access when capturing. macOS
 
 Phone names and capture device names must be unique. A missing configuration is treated as empty; malformed configuration is reported as a hardware discovery hint and does not block simulator-only usage. Capture starts only when requested.
 
-Once an input transport is installed and connected, run `phone-use calibrate --phone <hardware-id>` to measure and persist pointer gains. Existing cadence settings are preserved during recalibration. Without a transport, hardware input and calibration fail with a connection error.
+For input, enable Settings > Accessibility > Touch > AssistiveTouch, run `phone-use doctor` or any hardware command so the Mac advertises, then pair **phone-use HID Interface** in Settings > Bluetooth. Map AssistiveTouch additional button 3 to Home. The pointer uses absolute HID coordinates (0...32767), so `calibrate` is not required; it prints these pairing instructions.
 
 ## Development
 
@@ -92,6 +92,6 @@ swift test
 swift build -c release
 ```
 
-The runtime has one `transportFactory(PhoneConfig) -> HIDTransport?` integration point for the Mac Bluetooth input backend. There is no ESP32 or serial input backend.
+`Runtime.transportFactory` returns the shared `ClassicHIDHost`. There is no ESP32 or serial input backend.
 
-See [verification results and remaining hardware checks](docs/verification.md) for the completed simulator checks and transport handoff.
+See [verification results and remaining hardware checks](docs/verification.md) for the completed simulator checks. Physical Bluetooth input still needs a live iPhone pass of the test-day guide.
