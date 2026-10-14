@@ -39,11 +39,13 @@ targets = [
     .target(name: "PhoneUseSimulator", dependencies: ["PhoneUseCore", "PhoneUseCapture"]),
     .target(name: "PhoneUseHardware", dependencies: ["PhoneUseCore", "PhoneUseHID", "PhoneUseCapture"]),
     .target(name: "PhoneUseMCP", dependencies: ["PhoneUseCore", .product(name: "MCP", package: "swift-sdk")]),
+    .target(name: "PhoneUseRuntime", dependencies: ["PhoneUseCore", "PhoneUseHID", "PhoneUseCapture", "PhoneUseSimulator", "PhoneUseHardware", "PhoneUseMCP"]),
     .target(name: "PhoneUseIPC", dependencies: ["PhoneUseMCP", .product(name: "MCP", package: "swift-sdk"), .product(name: "Logging", package: "swift-log")]),
     .executableTarget(name: "phone-use", dependencies: [
-        "PhoneUseCore", "PhoneUseHID", "PhoneUseCapture", "PhoneUseIPC",
+        "PhoneUseCore", "PhoneUseHID", "PhoneUseCapture", "PhoneUseIPC", "PhoneUseRuntime",
         "PhoneUseSimulator", "PhoneUseHardware", "PhoneUseMCP", "PhoneUseRemote",
         .product(name: "ArgumentParser", package: "swift-argument-parser"),
+        .product(name: "MCP", package: "swift-sdk"),
     ], exclude: ["Info.plist"], linkerSettings: [.unsafeFlags([
         "-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker",
         URL(fileURLWithPath: #filePath).deletingLastPathComponent()
