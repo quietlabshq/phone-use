@@ -8,6 +8,12 @@ import PhoneUseHID
 /// Mac-as-HID-device over Classic Bluetooth, following TapKit's HIDRuntime:
 /// undocumented `CBClassicManager` APIs, a patched L2CAP open handler, and
 /// raw `sendmsg` writes of HIDP input packets.
+public struct HIDHostStatus: Sendable, Equatable {
+    public var advertising: Bool
+    public var connected: Bool
+    public var error: String?
+}
+
 public actor ClassicHIDHost: HIDTransport {
     public static let shared = ClassicHIDHost()
 
@@ -18,6 +24,11 @@ public actor ClassicHIDHost: HIDTransport {
 
     public func isHostConnected() async -> Bool {
         interruptFD >= 0 || HIDAdvertiser.shared.hasInterruptChannel()
+    }
+
+    public func status() async -> HIDHostStatus {
+        HIDHostStatus(advertising: started && startError == nil && manager != nil,
+                      connected: await isHostConnected(), error: startError.map { String(describing: $0) })
     }
 
     public func send(_ report: HIDReport) async throws {
