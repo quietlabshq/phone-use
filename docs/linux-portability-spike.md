@@ -1,5 +1,7 @@
 # Linux portability spike
 
+> Paused on 2026-10-14. The package is macOS-only; the Linux manifest branch, fake-phone executable, and Linux scripts were removed. Recover them from git history to resume.
+
 This hardware-independent slice was started on 2026-09-29 at the user's direction while Task 15 remains pending. It proves that the portable frame, HID planning, MCP dispatcher, and a fake-phone stdio executable build and run on Linux. It does not implement or claim support for Linux capture or Bluetooth input.
 
 ## What is included

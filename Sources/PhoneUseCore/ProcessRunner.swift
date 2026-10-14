@@ -1,10 +1,6 @@
 import Foundation
 
-#if canImport(Darwin)
 import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
 
 public struct ProcessResult: Sendable {
     public let status: Int32
@@ -39,11 +35,9 @@ public struct LiveProcessRunner: ProcessRunner {
             let output = Pipe()
             let errors = Pipe()
             let input = Pipe()
-            #if canImport(Darwin)
             guard fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1) != -1 else {
                 throw PhoneError.commandFailed("Could not configure process input pipe")
             }
-            #endif
             process.standardOutput = output
             process.standardError = errors
             process.standardInput = input
@@ -76,27 +70,6 @@ public struct LiveProcessRunner: ProcessRunner {
 }
 
 private func writeWithoutSIGPIPE(_ data: Data, to handle: FileHandle) throws {
-    #if os(Linux)
-    var blockedSignals = sigset_t()
-    guard sigemptyset(&blockedSignals) == 0, sigaddset(&blockedSignals, SIGPIPE) == 0 else {
-        throw PhoneError.commandFailed("Could not prepare process input pipe")
-    }
-    var originalSignals = sigset_t()
-    guard pthread_sigmask(SIG_BLOCK, &blockedSignals, &originalSignals) == 0 else {
-        throw PhoneError.commandFailed("Could not protect process input pipe")
-    }
-    var pendingBeforeWrite = sigset_t()
-    _ = sigpending(&pendingBeforeWrite)
-    let alreadyPending = sigismember(&pendingBeforeWrite, SIGPIPE) == 1
-    let wasBlocked = sigismember(&originalSignals, SIGPIPE) == 1
-    defer {
-        if !wasBlocked && !alreadyPending {
-            var timeout = timespec()
-            _ = sigtimedwait(&blockedSignals, nil, &timeout)
-        }
-        _ = pthread_sigmask(SIG_SETMASK, &originalSignals, nil)
-    }
-    #endif
     try handle.write(contentsOf: data)
 }
 

@@ -2,13 +2,7 @@ import Foundation
 import Testing
 @testable import PhoneUseCore
 
-#if canImport(Darwin)
 import Darwin
-private let posixModule = "Darwin"
-#elseif canImport(Glibc)
-import Glibc
-private let posixModule = "Glibc"
-#endif
 
 @Test func ownershipRejectsContentionAndPreservesInode() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -53,7 +47,7 @@ private let posixModule = "Glibc"
     let helper = root.appendingPathComponent("main.swift")
     try """
     import Foundation
-    import \(posixModule)
+    import Darwin
     let owner = try ProcessOwnership(directory: URL(fileURLWithPath: CommandLine.arguments[1]))
     var child: pid_t = 0
     let arguments = [strdup("sleep"), strdup("20"), nil]
@@ -112,7 +106,7 @@ private let posixModule = "Glibc"
     let helper = root.appendingPathComponent("main.swift")
     try """
     import Foundation
-    import \(posixModule)
+    import Darwin
     @_silgen_name("hold_inherited_descriptors") func holdInheritedDescriptors() -> pid_t
     let directory = URL(fileURLWithPath: CommandLine.arguments[1])
     var owner: ProcessOwnership? = try ProcessOwnership(directory: directory)

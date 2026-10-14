@@ -9,9 +9,6 @@ Verified on 2026-09-29 on this Mac: Swift 6.4, Xcode 27.1 beta, patched AXe `1.8
 | `env -u PHONE_USE_SIM_UDID swift test` | 140 tests declared; 139 passed and one simulator integration test skipped. |
 | `PHONE_USE_SIM_UDID=842C0EF9-652A-4285-8148-1324C6EA2C4D PHONE_USE_AXE="$PWD/.build/tools/axe/bin/axe" swift test --filter SimulatorIntegration` | Live iPhone 17 SimulatorIntegration passed in 24.323 seconds. |
 | `swift build -c release` | Passed. |
-| `docker run --rm -v "$PWD:/workspace" -w /workspace swift:6.2 swift test` | 75 Linux tests passed in Ubuntu 24.04.5 aarch64 with Swift 6.2.4. |
-| `docker run --rm -v "$PWD:/workspace" -w /workspace swift:6.2 swift build -c release` | Passed for the portable Linux package and fake-phone executable. |
-| `python3 scripts/test-linux-stdio.py -- docker run --rm -i -v "$PWD:/workspace" -w /workspace swift:6.2 sh /workspace/scripts/run-linux-fake-mcp.sh` | Real Linux stdio executable passed initialize, tool listing, fake discovery, screenshot image, action, and error checks. |
 | `mise exec node@24.18.0 -- npm test --prefix relay` | 21 Worker tests passed. |
 | `mise exec node@24.18.0 -- npm run typecheck --prefix relay` | Passed. |
 | Stdio MCP smoke | Initialize, nine-tool catalog, nine invalid calls, Home, open Settings, JPEG screenshot, and clean EOF exit passed. |
@@ -19,7 +16,7 @@ Verified on 2026-09-29 on this Mac: Swift 6.4, Xcode 27.1 beta, patched AXe `1.8
 
 Coverage includes screenshot scaling and rotation, bounds and argument errors, unsupported text without partial typing, per-phone action serialization, HID reports, pointer planning and simulated calibration, configuration persistence, disconnected hardware input with working fake capture, frame freshness, camera authorization errors, subprocess I/O and cancellation, and 256 rapid concurrent subprocess exits.
 
-The Linux check is a hardware-independent portability spike, not Linux phone support. It covers the portable frame/HID/MCP layers and a development-only fake-phone stdio executable. Linux USB/AirPlay capture, BlueZ input, physical-device behavior, and the supported distribution remain open. See the [Linux portability record](linux-portability-spike.md).
+Linux support is paused as of 2026-10-14: the package is macOS-only and the Linux fake-phone executable and scripts were removed. The earlier portability spike is recorded in the [Linux portability record](linux-portability-spike.md).
 
 The first final integration run and a Claude session exposed a subprocess termination race. A stress regression reproduced it before the fix; both the full simulator suite and Claude session passed after replacing `waitUntilExit()` with a prelaunch termination handler. Ordinary UI transitions can still require a second screenshot before deciding whether an action succeeded.
 

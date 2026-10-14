@@ -2,39 +2,13 @@
 import PackageDescription
 import Foundation
 
-let dependencies: [Package.Dependency]
-let targets: [Target]
-let appProducts: [Product]
-#if os(Linux)
-appProducts = []
-dependencies = [
-    .package(path: "Vendor/swift-sdk"),
-    .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
-]
-targets = [
-    .target(name: "PhoneUseCore"),
-    .target(name: "PhoneUseHID", dependencies: ["PhoneUseCore"]),
-    .target(name: "PhoneUseMCP", dependencies: ["PhoneUseCore", .product(name: "MCP", package: "swift-sdk")]),
-    .executableTarget(name: "phone-use", dependencies: [
-        "PhoneUseCore", "PhoneUseHID", "PhoneUseMCP",
-        .product(name: "ArgumentParser", package: "swift-argument-parser"),
-    ], path: "Sources/phone-use-linux", resources: [.copy("fake-screenshot.jpg")]),
-    .testTarget(name: "PhoneUseCoreTests", dependencies: ["PhoneUseCore"], sources: [
-        "GeometryTests.swift", "KeyboardMapTests.swift", "MacrosTests.swift",
-        "LiveInputTests.swift", "MonotonicClockTests.swift", "PixelFrameTests.swift", "ProcessOwnershipTests.swift", "ProcessRunnerTests.swift",
-    ]),
-    .testTarget(name: "PhoneUseHIDTests", dependencies: ["PhoneUseHID"]),
-    .testTarget(name: "PhoneUseMCPTests", dependencies: ["PhoneUseMCP"]),
-]
-#else
-appProducts = [.executable(name: "PhoneUseApp", targets: ["PhoneUseApp"])]
-dependencies = [
+let dependencies: [Package.Dependency] = [
     .package(path: "Vendor/swift-sdk"),
     .package(url: "https://github.com/apple/swift-nio.git", exact: "2.103.0"),
     .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
     .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
 ]
-targets = [
+let targets: [Target] = [
     .target(name: "PhoneUseCore"),
     .target(name: "PhoneUseRemote", dependencies: ["PhoneUseMCP", .product(name: "NIOCore", package: "swift-nio"), .product(name: "NIOPosix", package: "swift-nio"), .product(name: "NIOHTTP1", package: "swift-nio")]),
     .target(name: "PhoneUseHID", dependencies: ["PhoneUseCore"]),
@@ -66,12 +40,14 @@ targets = [
     .testTarget(name: "PhoneUseHardwareTests", dependencies: ["PhoneUseHardware"]),
     .testTarget(name: "PhoneUseIPCTests", dependencies: ["PhoneUseIPC", "PhoneUseMCP", .product(name: "MCP", package: "swift-sdk")]),
 ]
-#endif
 
 let package = Package(
     name: "phone-use",
     platforms: [.macOS(.v14)],
-    products: [.executable(name: "phone-use", targets: ["phone-use"])] + appProducts,
+    products: [
+        .executable(name: "phone-use", targets: ["phone-use"]),
+        .executable(name: "PhoneUseApp", targets: ["PhoneUseApp"]),
+    ],
     dependencies: dependencies,
     targets: targets
 )
