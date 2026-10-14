@@ -7,22 +7,18 @@ import PhoneUseHID
 import PhoneUseSimulator
 
 struct Calibrate: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(abstract: "Measure and save pointer gains for a connected hardware phone.")
+    static let configuration = CommandConfiguration(abstract: "Absolute HID pointer does not need calibration; prints pairing instructions.")
     @Option(help: "Hardware phone ID; required when multiple hardware phones are available.") var phone: String?
     mutating func run() async throws {
         let ownership = try ProcessOwnership()
         defer { withExtendedLifetime(ownership) {} }
-        var config = try Config.load()
+        let config = try Config.load()
         let result = await HardwareRegistry(config: config, transportFor: Runtime.transportFactory).discover()
         let matches = result.phones.filter { phone == nil || $0.info.id == phone }
-        guard matches.count == 1, let selected = matches.first as? HardwarePhone else {
+        guard matches.count == 1, matches.first is HardwarePhone else {
             throw ValidationError((["Select exactly one hardware phone using --phone. Available: \(result.phones.map { $0.info.id }.joined(separator: ", "))"] + result.hints).joined(separator: "\n"))
         }
-        guard let index = config.phones.firstIndex(where: { $0.name == selected.info.name }) else { throw ValidationError("Selected phone has no configuration") }
-        let base = config.phones[index].pointer ?? PointerGains(pixelsPerCountX: 1, pixelsPerCountY: 1)
-        config.phones[index].pointer = try await selected.calibrate(base: base)
-        try config.save()
-        print("Saved pointer calibration for \(selected.info.name) to \(Config.defaultURL.path)")
+        print("Absolute HID pointer is in use; calibration is not required. Pair the iPhone with '\(HIDSDPRecord.serviceName)' and map AssistiveTouch additional button 3 to Home.")
     }
 }
 struct Doctor: AsyncParsableCommand {
@@ -59,10 +55,10 @@ struct Doctor: AsyncParsableCommand {
             let config = try Config.load()
             report(true, "Configuration: \(Config.defaultURL.path), \(config.phones.count) phones")
             for phone in config.phones {
-                guard let transport = Runtime.transportFactory(phone) else { report(false, "\(phone.name): input transport not installed; USB capture and Bluetooth input are separate"); continue }
-                report(await transport.isHostConnected(), "\(phone.name): input transport installed, host connection")
+                guard let transport = Runtime.transportFactory(phone) else { report(false, "\(phone.name): Bluetooth HID transport is unavailable"); continue }
+                report(await transport.isHostConnected(), "\(phone.name): Bluetooth HID transport installed; iPhone connected as HID host")
             }
-            if config.phones.isEmpty { report(false, "No hardware phones configured; input transport not installed by default") }
+            if config.phones.isEmpty { report(false, "No hardware phones configured") }
         } catch { report(false, "Configuration: \(error)") }
         if problems { throw ExitCode.failure }
     }

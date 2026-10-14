@@ -32,8 +32,11 @@ struct ActionOptions: ParsableArguments {
     }
 }
 enum Runtime {
-    // Install the optional input backend here. USB capture does not imply Bluetooth input.
-    static let transportFactory: @Sendable (PhoneConfig) -> (any HIDTransport)? = { _ in nil }
+    static let transportFactory: @Sendable (PhoneConfig) -> (any HIDTransport)? = { _ in
+        let host = ClassicHIDHost.shared
+        Task { try? await host.startAdvertising() }
+        return host
+    }
     static func dispatcher(_ options: BackendOptions) -> ToolDispatcher {
         var registries: [any PhoneRegistry] = []
         if options.usesSimulator { registries.append(SimulatorRegistry()) }
