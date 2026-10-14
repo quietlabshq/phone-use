@@ -18,7 +18,10 @@ public enum ToolCatalog {
         spec("type_text", "Type up to 100 US-ASCII characters", ["text"], ["text": ("string", "Text to type")]),
         spec("press_key", "Press a named key or lowercase a-z", ["key"], ["key": ("string", "enter, escape, backspace, tab, space, arrow_up, arrow_down, arrow_left, arrow_right, or a-z"), "modifiers": ("array", "control, shift, option, command"), "repeat": integer("1-100, default 1")]),
         spec("press_home", "Go to the home screen", [], [:]),
-        spec("open_app", "Open an app using Spotlight", ["name"], ["name": ("string", "Nonempty app name, at most 100 US-ASCII characters")])
+        spec("open_app", "Open an app using Spotlight", ["name"], ["name": ("string", "Nonempty app name, at most 100 US-ASCII characters")]),
+        spec("set_task", "Show the user what you are doing on this phone. Call when you start a job; an empty title clears it.", ["title"], ["title": ("string", "Short task title, at most 80 characters")]),
+        spec("request_help", "Ask the user to take over, for example at a passcode, Face ID, or a step you are not authorized to do. Returns at once; actions fail until the user hands the phone back or you call cancel_help. Keep taking screenshots to see when it is solved.", ["reason"], ["reason": ("string", "What the user needs to do, 1-200 characters")]),
+        spec("cancel_help", "Withdraw your help request when you no longer need the user. Does not work once the user has taken over.", [], [:]),
     ]
     private static func integer(_ description: String) -> (String, String) { ("integer", description) }
     private static func spec(_ name: String, _ description: String, _ required: [String], _ properties: [String: (type: String, description: String)], phone: Bool = true) -> ToolSpec {

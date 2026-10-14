@@ -50,7 +50,7 @@ Text and app names support US-ASCII, with a 100-character limit. Tap count is 1-
 "$BIN" mcp
 ```
 
-`mcp` relays standard input and output to a session inside the app, over a private socket at `~/.config/phone-use/run/app.sock`. The app serves simulators and configured iPhones together; the old `--simulator` and `--hardware` flags are still accepted and ignored. The server reserves stdout for MCP JSON. Tools are `list_phones`, `screenshot`, `tap`, `long_press`, `swipe`, `type_text`, `press_key`, `press_home`, and `open_app`. Actions accept optional `phone_id`; it is required if discovery finds multiple phones. Screenshot results contain a base64 JPEG image and a coordinate note. Invalid arguments and backend failures return tool errors.
+`mcp` relays standard input and output to a session inside the app, over a private socket at `~/.config/phone-use/run/app.sock`. The app serves simulators and configured iPhones together; the old `--simulator` and `--hardware` flags are still accepted and ignored. The server reserves stdout for MCP JSON. Tools are `list_phones`, `screenshot`, `tap`, `long_press`, `swipe`, `type_text`, `press_key`, `press_home`, `open_app`, `set_task`, `request_help`, and `cancel_help`. `set_task` labels the agent's work in the app. `request_help` marks the phone **Needs you** in the app; the agent can withdraw it with `cancel_help` until you take over. While a phone is paused, taken over, or waiting for help, actions fail immediately with a message saying so, and screenshots keep working. Actions accept optional `phone_id`; it is required if discovery finds multiple phones. Screenshot results contain a base64 JPEG image and a coordinate note. Invalid arguments and backend failures return tool errors.
 
 Register with Claude Code:
 

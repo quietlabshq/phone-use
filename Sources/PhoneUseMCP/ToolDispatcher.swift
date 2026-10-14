@@ -23,6 +23,11 @@ public actor ToolDispatcher {
     private let perPhoneLimit: Int
     private let globalLimit: Int
     private let imageEncoder: any FrameJPEGEncoder
+    private var controls: [String: PhoneControl] = [:]
+    private var tasks: [String: TaskLabel] = [:]
+    /// Calls, control changes, tasks, and agent sessions, for one local observer such as the app.
+    public nonisolated let events: AsyncStream<DispatcherEvent>
+    private nonisolated let eventSink: AsyncStream<DispatcherEvent>.Continuation
     public init(registry: any PhoneRegistry, sleeper: any Sleeper = RealSleeper(),
                 perPhoneQueueLimit: Int = 8, globalQueueLimit: Int = 32,
                 imageEncoder: any FrameJPEGEncoder = UnavailableFrameJPEGEncoder(),
@@ -34,8 +39,17 @@ public actor ToolDispatcher {
         self.registry = registry
         self.sleeper = sleeper
         self.imageEncoder = imageEncoder
+        (events, eventSink) = AsyncStream.makeStream(of: DispatcherEvent.self, bufferingPolicy: .bufferingNewest(512))
     }
-    public func call(_ name: String, _ args: [String: ToolArg], context: InvocationContext? = nil) async -> ToolOutput {
+    deinit { eventSink.finish() }
+    public func call(_ name: String, _ args: [String: ToolArg], context: InvocationContext? = nil, agent: AgentIdentity? = nil) async -> ToolOutput {
+        let agent = agent ?? context.map { AgentIdentity(id: "remote:\($0.sessionID)", name: "remote") } ?? AgentIdentity(id: "", name: "agent")
+        var record: ToolCallRecord?
+        let output = await perform(name, args, context: context, agent: agent, record: &record)
+        if let record { finish(record, output) }
+        return output
+    }
+    private func perform(_ name: String, _ args: [String: ToolArg], context: InvocationContext?, agent: AgentIdentity, record: inout ToolCallRecord?) async -> ToolOutput {
         var mutationStarted = false
         var leaseToken: UUID?
         do {
@@ -75,6 +89,9 @@ public actor ToolDispatcher {
             let size = screenshotSizes[phone.info.id] ?? phone.info.screenSize
             guard size.width > 0, size.height > 0 else { throw invalid("Invalid phone screen size") }
             let scaler = ScreenshotScaler(native: size)
+            record = begin(phoneID: phone.info.id, source: .agent(agent), tool: name, arguments: Self.describe(name, args),
+                           touches: Self.touchKeys[name, default: []].compactMap { try? scaler.toNative(.init(x: args[$0.x]?.int ?? 0, y: args[$0.y]?.int ?? 0)) })
+            if Self.mutations.contains(name) { try checkControl(phone.info.id, agent: agent) }
             func integer(_ key: String, default fallback: Int = 0) -> Int { if case let .int(value) = args[key] { return value }; return fallback }
             func string(_ key: String) -> String { if case let .string(value) = args[key] { return value }; return "" }
             func bounded(_ key: String, default fallback: Int, range: ClosedRange<Int>) throws -> Int {
@@ -101,7 +118,20 @@ public actor ToolDispatcher {
                 let native = PixelSize(width: frame.width, height: frame.height)
                 screenshotSizes[phone.info.id] = native
                 let actual = ScreenshotScaler(native: native).scaled
-                return .jpeg(try imageEncoder.jpeg(frame, maxLongEdge: 1344, quality: 0.8), note: "Screenshot \(actual.width)x\(actual.height). Coordinates: x 0-\(actual.width - 1), y 0-\(actual.height - 1).")
+                let jpeg = try imageEncoder.jpeg(frame, maxLongEdge: 1344, quality: 0.8)
+                record?.outcome = .succeeded("\(actual.width)×\(actual.height) · \(max(1, jpeg.count / 1024)) KB")
+                return .jpeg(jpeg, note: "Screenshot \(actual.width)x\(actual.height). Coordinates: x 0-\(actual.width - 1), y 0-\(actual.height - 1).")
+            case "request_help":
+                let reason = string("reason").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard (1...200).contains(reason.count) else { throw invalid("reason must be 1-200 characters") }
+                return .text(try requestHelp(phone.info.id, reason: reason, agent: agent))
+            case "cancel_help":
+                return .text(try cancelHelp(phone.info.id, agent: agent))
+            case "set_task":
+                let title = string("title").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard title.count <= 80 else { throw invalid("title must be at most 80 characters") }
+                setTask(phone.info.id, title.isEmpty ? nil : TaskLabel(title: title, agent: agent, since: Date()))
+                return .text(title.isEmpty ? "Task cleared." : "Task set.")
             case "tap": action = try .tap(point("x", "y"), count: bounded("count", default: 1, range: 1...3))
             case "long_press": action = try .longPress(point("x", "y"), milliseconds: bounded("duration_ms", default: 800, range: 1...60_000))
             case "swipe": action = try .swipe(from: point("from_x", "from_y"), to: point("to_x", "to_y"), milliseconds: bounded("duration_ms", default: 300, range: 1...60_000))
@@ -153,18 +183,131 @@ public actor ToolDispatcher {
         guard let phone = phones.first(where: { $0.info.id == phoneID }) else { throw PhoneError.phoneNotFound(phoneID) }
         try await acquire(phoneID)
         var token: UUID?
+        var record: ToolCallRecord? = begin(phoneID: phoneID, source: .person, tool: command.tool, arguments: command.arguments, touches: command.touches)
         defer {
+            if let record { finish(record, .text("OK")) }
             if let token {
                 lastMutationCompletedAt[phoneID] = FrameFreshness.now().capturedAtNanoseconds
                 finishMutation(phoneID: phoneID, token: token)
             }
             release(phoneID)
         }
-        token = try admitMutation(nil, phoneID: phoneID)
-        switch command {
-        case let .action(action): try await phone.perform(action)
-        case .home: try await Macros.home(on: phone, sleeper: sleeper)
-        case let .openApp(name): try await Macros.openApp(name, on: phone, sleeper: sleeper)
+        do {
+            token = try admitMutation(nil, phoneID: phoneID)
+            switch command {
+            case let .action(action): try await phone.perform(action)
+            case .home: try await Macros.home(on: phone, sleeper: sleeper)
+            case let .openApp(name): try await Macros.openApp(name, on: phone, sleeper: sleeper)
+            }
+        } catch {
+            if let started = record { finish(started, .error(String(describing: error))); record = nil }
+            throw error
+        }
+    }
+
+    // MARK: Control
+
+    /// Tools that change the phone, and so honor pause, take over, and help requests.
+    static let mutations: Set<String> = ["tap", "long_press", "swipe", "type_text", "press_key", "press_home", "open_app"]
+    private static let touchKeys: [String: [(x: String, y: String)]] = [
+        "tap": [("x", "y")], "long_press": [("x", "y")], "swipe": [("from_x", "from_y"), ("to_x", "to_y")],
+    ]
+
+    public func control(of phoneID: String) -> PhoneControl { controls[phoneID] ?? .agents }
+    public func task(of phoneID: String) -> TaskLabel? { tasks[phoneID] }
+
+    /// Stops agents from changing the phone until `resume`. Only phones agents control can be paused.
+    public func pause(phoneID: String) { if control(of: phoneID) == .agents { setControl(phoneID, .paused) } }
+    public func resume(phoneID: String) { if control(of: phoneID) == .paused { setControl(phoneID, .agents) } }
+    /// Gives the person exclusive control, ending any pause or help request.
+    public func takeOver(phoneID: String) { setControl(phoneID, .person) }
+    public func handBack(phoneID: String) { if control(of: phoneID) == .person { setControl(phoneID, .agents) } }
+
+    public func agentConnected(_ agent: AgentIdentity) { eventSink.yield(.agentConnected(agent)) }
+    /// Drops the agent's tasks and help requests; nobody is waiting for them any more.
+    public func agentDisconnected(_ agent: AgentIdentity) {
+        for (phoneID, control) in controls { if case let .helpRequested(_, owner) = control, owner == agent { setControl(phoneID, .agents) } }
+        for (phoneID, task) in tasks where task.agent == agent { setTask(phoneID, nil) }
+        eventSink.yield(.agentDisconnected(agent))
+    }
+
+    private func checkControl(_ phoneID: String, agent: AgentIdentity) throws {
+        switch control(of: phoneID) {
+        case .agents: return
+        case .paused: throw invalid(ControlMessage.paused)
+        case .person: throw invalid(ControlMessage.person)
+        case let .helpRequested(reason, owner): throw invalid(ControlMessage.help(reason, own: owner == agent))
+        }
+    }
+    private func requestHelp(_ phoneID: String, reason: String, agent: AgentIdentity) throws -> String {
+        switch control(of: phoneID) {
+        case .paused: throw invalid(ControlMessage.paused)
+        case .person: throw invalid(ControlMessage.person)
+        case let .helpRequested(other, owner) where owner != agent: throw invalid(ControlMessage.help(other, own: false))
+        case .agents, .helpRequested:
+            setControl(phoneID, .helpRequested(reason: reason, agent: agent))
+            return "Asked the user for help. Actions on this phone fail until the user takes over and hands it back, or you call cancel_help. Take screenshots to see when the problem is solved."
+        }
+    }
+    private func cancelHelp(_ phoneID: String, agent: AgentIdentity) throws -> String {
+        switch control(of: phoneID) {
+        case .person: throw invalid(ControlMessage.person)
+        case let .helpRequested(reason, owner):
+            guard owner == agent else { throw invalid(ControlMessage.help(reason, own: false)) }
+            setControl(phoneID, .agents)
+            return "Help request withdrawn."
+        case .agents, .paused: return "No help request was pending."
+        }
+    }
+    private func setControl(_ phoneID: String, _ control: PhoneControl) {
+        guard self.control(of: phoneID) != control else { return }
+        controls[phoneID] = control == .agents ? nil : control
+        eventSink.yield(.control(phoneID: phoneID, control))
+    }
+    private func setTask(_ phoneID: String, _ task: TaskLabel?) {
+        guard tasks[phoneID] != task else { return }
+        tasks[phoneID] = task
+        eventSink.yield(.task(phoneID: phoneID, task))
+    }
+
+    // MARK: Activity
+
+    private func begin(phoneID: String, source: ToolCallRecord.Source, tool: String, arguments: String, touches: [PixelPoint]) -> ToolCallRecord {
+        let record = ToolCallRecord(id: UUID(), phoneID: phoneID, source: source, tool: tool, arguments: arguments, touches: touches, started: Date())
+        eventSink.yield(.call(record))
+        return record
+    }
+    private func finish(_ record: ToolCallRecord, _ output: ToolOutput) {
+        var record = record
+        let finished = Date()
+        record.finished = finished
+        switch output {
+        case let .error(message): record.outcome = .failed(message)
+        case let .text(text) where record.outcome == .running:
+            let seconds = finished.timeIntervalSince(record.started)
+            record.outcome = .succeeded(text != "OK" ? text : record.tool == "type_text" ? "\(record.arguments.count - 2) keys"
+                                        : seconds >= 1 ? String(format: "Done in %.1f s", seconds) : "Done")
+        case .text, .jpeg: break
+        }
+        eventSink.yield(.call(record))
+    }
+    static func describe(_ name: String, _ args: [String: ToolArg]) -> String {
+        func int(_ key: String) -> String { args[key]?.int.map(String.init) ?? "?" }
+        func quoted(_ key: String) -> String { if case let .string(value) = args[key] { return "\"\(value)\"" }; return "" }
+        switch name {
+        case "tap": return "\(int("x")), \(int("y"))" + ((args["count"]?.int ?? 1) > 1 ? " ×\(int("count"))" : "")
+        case "long_press": return "\(int("x")), \(int("y"))" + (args["duration_ms"] != nil ? " · \(int("duration_ms")) ms" : "")
+        case "swipe": return "\(int("from_x")), \(int("from_y")) → \(int("to_x")), \(int("to_y"))"
+        case "type_text": return quoted("text")
+        case "press_key":
+            var modifiers: [String] = []
+            if case let .strings(values) = args["modifiers"] { modifiers = values }
+            return (modifiers + [args["key"].flatMap { if case let .string(key) = $0 { key } else { nil } } ?? "?"]).joined(separator: "+")
+                + ((args["repeat"]?.int ?? 1) > 1 ? " ×\(int("repeat"))" : "")
+        case "open_app": return quoted("name")
+        case "request_help": return quoted("reason")
+        case "set_task": return quoted("title")
+        default: return ""
         }
     }
     private func discover(refresh: Bool) async throws -> DiscoveryResult {
@@ -273,4 +416,42 @@ public enum DirectCommand: Sendable, Equatable {
     case action(PhoneAction)
     case home
     case openApp(String)
+
+    var tool: String {
+        switch self {
+        case let .action(action):
+            switch action {
+            case .tap: "tap"
+            case .longPress: "long_press"
+            case .swipe: "swipe"
+            case .typeText: "type_text"
+            case .key: "press_key"
+            case .home: "press_home"
+            }
+        case .home: "press_home"
+        case .openApp: "open_app"
+        }
+    }
+    var arguments: String {
+        switch self {
+        case let .action(.tap(point, count)): "\(point.x), \(point.y)" + (count > 1 ? " ×\(count)" : "")
+        case let .action(.longPress(point, milliseconds)): "\(point.x), \(point.y) · \(milliseconds) ms"
+        case let .action(.swipe(from, to, _)): "\(from.x), \(from.y) → \(to.x), \(to.y)"
+        case let .action(.typeText(text)): "\"\(text)\""
+        case let .action(.key(key, modifiers, count)): (modifiers.map(\.rawValue) + [key.name]).joined(separator: "+") + (count > 1 ? " ×\(count)" : "")
+        case .home, .action(.home): ""
+        case let .openApp(name): "\"\(name)\""
+        }
+    }
+    var touches: [PixelPoint] {
+        switch self {
+        case let .action(.tap(point, _)), let .action(.longPress(point, _)): [point]
+        case let .action(.swipe(from, to, _)): [from, to]
+        default: []
+        }
+    }
+}
+
+private extension ToolArg {
+    var int: Int? { if case let .int(value) = self { return value }; return nil }
 }

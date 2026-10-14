@@ -33,7 +33,7 @@ private func text(_ content: [Tool.Content]) -> String {
                 let client = try await HostClient.session(socket: socket)
                 defer { Task { await client.disconnect() } }
                 let tools = try await client.listTools().tools
-                #expect(tools.count == 9)
+                #expect(tools.count == 12)
                 let result = try await client.callTool(name: "list_phones")
                 #expect(result.isError != true)
                 return text(result.content)
@@ -103,7 +103,7 @@ private func text(_ content: [Tool.Content]) -> String {
     let listener = try HostListener(socket: socket, dispatcher: ToolDispatcher(registry: HintRegistry()))
     defer { listener.stop() }
     let client = try await HostClient.session(socket: socket)
-    #expect(try await client.listTools().tools.count == 9)
+    #expect(try await client.listTools().tools.count == 12)
     await client.disconnect()
 }
 
@@ -129,4 +129,23 @@ private func text(_ content: [Tool.Content]) -> String {
     io.close()
     await #expect(throws: (any Error).self) { try await write.value }
     #expect(ContinuousClock.now - start < .seconds(5))
+}
+
+@Test func socketSessionsReportTheirClientAsAnAgent() async throws {
+    let socket = try temporarySocket()
+    defer { try? FileManager.default.removeItem(at: socket.deletingLastPathComponent()) }
+    let dispatcher = ToolDispatcher(registry: HintRegistry())
+    let listener = try HostListener(socket: socket, dispatcher: dispatcher)
+    defer { listener.stop() }
+    let client = try await HostClient.session(socket: socket)
+    await client.disconnect()
+    var connected: AgentIdentity?
+    for await event in dispatcher.events {
+        if case let .agentConnected(agent) = event { connected = agent }
+        if case let .agentDisconnected(agent) = event {
+            #expect(agent == connected)
+            break
+        }
+    }
+    #expect(connected?.name == "phone-use-cli")
 }

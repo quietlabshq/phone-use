@@ -43,7 +43,7 @@ private struct Registry: PhoneRegistry {
 private struct NoSleep: Sleeper { func sleep(milliseconds: Int) async throws {} }
 
 @Test func catalogAndMapping() async {
-    #expect(ToolCatalog.all.count == 9)
+    #expect(ToolCatalog.all.count == 12)
     let phone = TestPhone()
     let dispatcher = ToolDispatcher(registry: Registry(phones: [phone]))
     _ = await dispatcher.call("tap", ["x": .int(309), "y": .int(672)])
