@@ -30,7 +30,7 @@ let targets: [Target] = [
     ])]),
     .executableTarget(name: "PhoneUseApp", dependencies: [
         "PhoneUseCore", "PhoneUseHID", "PhoneUseCapture", "PhoneUseHardware", "PhoneUseMCP", "PhoneUseIPC", "PhoneUseRuntime",
-    ], exclude: ["Info.plist", "PhoneUse.entitlements"]),
+    ], exclude: ["Info.plist", "PhoneUse.entitlements", "Fonts"]),
     .testTarget(name: "PhoneUseCaptureTests", dependencies: ["PhoneUseCapture", "PhoneUseCore"]),
     .testTarget(name: "PhoneUseCoreTests", dependencies: ["PhoneUseCore"]),
     .testTarget(name: "PhoneUseRemoteTests", dependencies: ["PhoneUseRemote", "PhoneUseCapture", .product(name: "NIOWebSocket", package: "swift-nio")]),
