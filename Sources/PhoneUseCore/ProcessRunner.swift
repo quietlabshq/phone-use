@@ -49,23 +49,7 @@ public struct LiveProcessRunner: ProcessRunner {
             process.standardInput = input
             process.arguments = args
             try await blocking {
-                let path: String
-                if executable.contains("/") {
-                    path = executable
-                } else {
-                    let paths = (ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin")
-                        .split(separator: ":", omittingEmptySubsequences: false)
-                    guard let match = paths.map({ URL(fileURLWithPath: $0.isEmpty ? "." : String($0))
-                        .appendingPathComponent(executable).path })
-                        .first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
-                        throw PhoneError.toolUnavailable(executable)
-                    }
-                    path = match
-                }
-                guard FileManager.default.isExecutableFile(atPath: path) else {
-                    throw PhoneError.toolUnavailable(executable)
-                }
-                process.executableURL = URL(fileURLWithPath: path)
+                process.executableURL = try resolveExecutable(executable)
                 try lifetime.start(process)
             }
             async let stdout = blocking { try output.fileHandleForReading.readToEnd() ?? Data() }
@@ -178,4 +162,23 @@ private final class ProcessLifetime: @unchecked Sendable {
             }
         }
     }
+}
+
+/// Resolves a bare command through `PATH`; paths containing `/` are used as given.
+public func resolveExecutable(_ executable: String) throws -> URL {
+    let path: String
+    if executable.contains("/") {
+        path = executable
+    } else {
+        let paths = (ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin")
+            .split(separator: ":", omittingEmptySubsequences: false)
+        guard let match = paths.map({ URL(fileURLWithPath: $0.isEmpty ? "." : String($0))
+            .appendingPathComponent(executable).path })
+            .first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+            throw PhoneError.toolUnavailable(executable)
+        }
+        path = match
+    }
+    guard FileManager.default.isExecutableFile(atPath: path) else { throw PhoneError.toolUnavailable(executable) }
+    return URL(fileURLWithPath: path)
 }
