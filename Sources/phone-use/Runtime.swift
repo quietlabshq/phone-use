@@ -22,6 +22,11 @@ struct ActionOptions: ParsableArguments {
     }
 }
 
+/// A tool call the app rejected; unlike a usage error, the command line was fine.
+struct ToolError: Error, CustomStringConvertible {
+    let description: String
+}
+
 /// Runs one tool call through Phone Use.app, which owns phone access.
 enum AppTool {
     static func call(_ name: String, _ arguments: [String: Value] = [:], output: String? = nil) async throws {
@@ -39,7 +44,7 @@ enum AppTool {
             default: break
             }
         }
-        if result.isError == true { throw ValidationError(messages.joined(separator: "\n")) }
+        if result.isError == true { throw ToolError(description: messages.joined(separator: "\n")) }
         if let image {
             guard let output else { throw ValidationError("Screenshot requires --output") }
             try image.write(to: URL(fileURLWithPath: output), options: .atomic)
