@@ -39,10 +39,18 @@ public enum MCPServer {
     }
     private static func failure(_ message: String) -> CallTool.Result { .init(content: [.text(text: message, annotations: nil, _meta: nil)], isError: true) }
     public static func run(dispatcher: ToolDispatcher) async throws {
+        try await serve(transport: StdioTransport(), dispatcher: dispatcher)
+    }
+    /// Runs one MCP session until the peer disconnects or the calling task is cancelled.
+    public static func serve(transport: any Transport, dispatcher: ToolDispatcher) async throws {
         let server = Server(name: "phone-use", version: "0.1.0", capabilities: .init(tools: .init(listChanged: false)))
         await server.withMethodHandler(ListTools.self) { _ in .init(tools: tools) }
         await server.withMethodHandler(CallTool.self) { await call($0, dispatcher: dispatcher) }
-        try await server.start(transport: StdioTransport())
-        await server.waitUntilCompleted()
+        try await server.start(transport: transport)
+        await withTaskCancellationHandler {
+            await server.waitUntilCompleted()
+        } onCancel: {
+            Task { await server.stop() }
+        }
     }
 }

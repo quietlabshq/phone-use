@@ -28,6 +28,7 @@ targets = [
 dependencies = [
     .package(path: "Vendor/swift-sdk"),
     .package(url: "https://github.com/apple/swift-nio.git", exact: "2.103.0"),
+    .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
     .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
 ]
 targets = [
@@ -38,8 +39,9 @@ targets = [
     .target(name: "PhoneUseSimulator", dependencies: ["PhoneUseCore", "PhoneUseCapture"]),
     .target(name: "PhoneUseHardware", dependencies: ["PhoneUseCore", "PhoneUseHID", "PhoneUseCapture"]),
     .target(name: "PhoneUseMCP", dependencies: ["PhoneUseCore", .product(name: "MCP", package: "swift-sdk")]),
+    .target(name: "PhoneUseIPC", dependencies: ["PhoneUseMCP", .product(name: "MCP", package: "swift-sdk"), .product(name: "Logging", package: "swift-log")]),
     .executableTarget(name: "phone-use", dependencies: [
-        "PhoneUseCore", "PhoneUseHID", "PhoneUseCapture",
+        "PhoneUseCore", "PhoneUseHID", "PhoneUseCapture", "PhoneUseIPC",
         "PhoneUseSimulator", "PhoneUseHardware", "PhoneUseMCP", "PhoneUseRemote",
         .product(name: "ArgumentParser", package: "swift-argument-parser"),
     ], exclude: ["Info.plist"], linkerSettings: [.unsafeFlags([
@@ -54,6 +56,7 @@ targets = [
     .testTarget(name: "PhoneUseSimulatorTests", dependencies: ["PhoneUseSimulator", "PhoneUseCapture"]),
     .testTarget(name: "PhoneUseMCPTests", dependencies: ["PhoneUseMCP"]),
     .testTarget(name: "PhoneUseHardwareTests", dependencies: ["PhoneUseHardware"]),
+    .testTarget(name: "PhoneUseIPCTests", dependencies: ["PhoneUseIPC", "PhoneUseMCP", .product(name: "MCP", package: "swift-sdk")]),
 ]
 #endif
 
