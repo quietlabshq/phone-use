@@ -10,15 +10,24 @@ struct CaptureCandidate: Sendable {
     let name: String
     let size: PixelSize
     let capture: @Sendable () async throws -> CGImage
+    var frames: (@Sendable () async throws -> AsyncStream<CGImage>)? = nil
 }
 
 public struct HardwareRegistry: PhoneRegistry {
     private let state: RegistryState
     public init(config: Config, transportFor: @escaping @Sendable (PhoneConfig) -> (any HIDTransport)? = { _ in nil }) {
-        state = RegistryState(config: config, transportFor: transportFor, candidates: Self.liveCandidates)
+        self.init(loadConfig: { config }, transportFor: transportFor)
+    }
+    /// Reloads the configuration on every discovery, so newly configured phones appear
+    /// without restarting the process.
+    public init(loadConfig: @escaping @Sendable () throws -> Config, transportFor: @escaping @Sendable (PhoneConfig) -> (any HIDTransport)? = { _ in nil }) {
+        state = RegistryState(loadConfig: loadConfig, transportFor: transportFor, candidates: Self.liveCandidates)
     }
     init(config: Config, candidates: @escaping @Sendable () async throws -> [CaptureCandidate]) {
-        state = RegistryState(config: config, transportFor: { _ in nil }, candidates: candidates)
+        self.init(loadConfig: { config }, candidates: candidates)
+    }
+    init(loadConfig: @escaping @Sendable () throws -> Config, candidates: @escaping @Sendable () async throws -> [CaptureCandidate]) {
+        state = RegistryState(loadConfig: loadConfig, transportFor: { _ in nil }, candidates: candidates)
     }
     public func discover() async -> (phones: [any Phone], hints: [String]) { await state.discover() }
 
@@ -35,7 +44,7 @@ public struct HardwareRegistry: PhoneRegistry {
             let lazy = LazyCapture(device: device)
             return CaptureCandidate(id: device.uniqueID, name: device.localizedName,
                                     size: PixelSize(width: max(1, Int(dimensions.width)), height: max(1, Int(dimensions.height))),
-                                    capture: { try await lazy.frame() })
+                                    capture: { try await lazy.frame() }, frames: { try await lazy.frames() })
         }
     }
 }
@@ -48,19 +57,24 @@ private actor LazyCapture {
         if source == nil { source = try CaptureSource(device: device) }
         return try await source!.latestFrame()
     }
+    func frames() async throws -> AsyncStream<CGImage> {
+        if source == nil { source = try CaptureSource(device: device) }
+        return try await source!.frameStream()
+    }
 }
 
 private actor RegistryState {
-    let config: Config
+    let loadConfig: @Sendable () throws -> Config
     let transportFor: @Sendable (PhoneConfig) -> (any HIDTransport)?
     let candidates: @Sendable () async throws -> [CaptureCandidate]
     var cached: [String: HardwarePhone] = [:]
-    init(config: Config, transportFor: @escaping @Sendable (PhoneConfig) -> (any HIDTransport)?,
+    init(loadConfig: @escaping @Sendable () throws -> Config, transportFor: @escaping @Sendable (PhoneConfig) -> (any HIDTransport)?,
          candidates: @escaping @Sendable () async throws -> [CaptureCandidate]) {
-        self.config = config; self.transportFor = transportFor; self.candidates = candidates
+        self.loadConfig = loadConfig; self.transportFor = transportFor; self.candidates = candidates
     }
     func discover() async -> (phones: [any Phone], hints: [String]) {
         do {
+            let config = try loadConfig()
             try config.validate()
             let available = try await candidates()
             var phones: [any Phone] = []
@@ -73,8 +87,9 @@ private actor RegistryState {
                     continue
                 }
                 let id = "hardware:\(device.id)"
-                let phone = cached[id] ?? HardwarePhone(info: PhoneInfo(id: id, name: configured.name, kind: .hardware, screenSize: device.size), capture: device.capture,
-                                                       transport: transportFor(configured) ?? UnavailableTransport(), gains: configured.pointer)
+                let reusable = cached[id].flatMap { $0.info.name == configured.name ? $0 : nil }
+                let phone = reusable ?? HardwarePhone(info: PhoneInfo(id: id, name: configured.name, kind: .hardware, screenSize: device.size), capture: device.capture,
+                                                      frames: device.frames, transport: transportFor(configured) ?? UnavailableTransport(), gains: configured.pointer)
                 retained[id] = phone
                 phones.append(phone)
             }

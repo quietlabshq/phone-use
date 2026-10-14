@@ -12,9 +12,10 @@ public struct UnavailableTransport: HIDTransport {
     }
 }
 
-public actor HardwarePhone: Phone {
+public actor HardwarePhone: Phone, LiveFrameSource {
     public nonisolated let info: PhoneInfo
     private let capture: @Sendable () async throws -> CGImage
+    private let frames: (@Sendable () async throws -> AsyncStream<CGImage>)?
     private let transport: any HIDTransport
     private let sleeper: any Sleeper
     private var gains: PointerGains?
@@ -23,8 +24,9 @@ public actor HardwarePhone: Phone {
     private var performing = false
 
     public init(info: PhoneInfo, capture: @escaping @Sendable () async throws -> CGImage,
+                frames: (@Sendable () async throws -> AsyncStream<CGImage>)? = nil,
                 transport: any HIDTransport, gains: PointerGains? = nil, sleeper: any Sleeper = RealSleeper()) {
-        self.info = info; self.capture = capture; self.transport = transport
+        self.info = info; self.capture = capture; self.frames = frames; self.transport = transport
         self.gains = gains; self.sleeper = sleeper; bounds = info.screenSize
         lastPointer = PixelPoint(x: info.screenSize.width / 2, y: info.screenSize.height / 2)
     }
@@ -39,6 +41,10 @@ public actor HardwarePhone: Phone {
         return frame
     }
     public func isInputConnected() async -> Bool { await transport.isHostConnected() }
+    public func liveFrames() async throws -> AsyncStream<CGImage> {
+        guard let frames else { throw PhoneError.commandFailed("Live view is unavailable for this phone") }
+        return try await frames()
+    }
     private func connected() async throws {
         guard await transport.isHostConnected() else {
             throw PhoneError.inputNotConnected("Bluetooth HID host is not advertising or no iPhone is connected")

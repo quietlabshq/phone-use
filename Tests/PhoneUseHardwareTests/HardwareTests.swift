@@ -137,3 +137,24 @@ private actor RecordingSleeper: Sleeper {
     ])
     #expect(await sleeper.delays == [60, 80])
 }
+@Test func registryReloadsConfigurationOnEachDiscovery() async throws {
+    let store = ConfigBox()
+    let registry = HardwareRegistry(loadConfig: { store.config }, candidates: {
+        [CaptureCandidate(id: "usb-1", name: "USB", size: PixelSize(width: 100, height: 200), capture: { frame() })]
+    })
+    let before = await registry.discover()
+    #expect(before.phones.isEmpty)
+    #expect(before.hints.contains { $0.contains("unconfigured") })
+    store.config = Config(phones: [PhoneConfig(name: "Mine", captureDeviceName: "USB")])
+    #expect(await registry.discover().phones.map(\.info.name) == ["Mine"])
+    store.config = Config(phones: [PhoneConfig(name: "Renamed", captureDeviceName: "USB")])
+    #expect(await registry.discover().phones.map(\.info.name) == ["Renamed"])
+}
+private final class ConfigBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = Config()
+    var config: Config {
+        get { lock.withLock { value } }
+        set { lock.withLock { value = newValue } }
+    }
+}
