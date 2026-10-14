@@ -16,8 +16,6 @@ public enum PixelFrameImageAdapter {
                                           bitsPerComponent: 8, bytesPerRow: rowStride,
                                           space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
                                           bitmapInfo: bitmapInfo) else { return false }
-            context.translateBy(x: 0, y: CGFloat(image.height))
-            context.scaleBy(x: 1, y: -1)
             context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
             return true
         }
