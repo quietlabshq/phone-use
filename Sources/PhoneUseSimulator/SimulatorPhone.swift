@@ -7,7 +7,7 @@ public actor SimulatorPhone: Phone {
     public nonisolated let info: PhoneInfo
     public nonisolated let pointScale: Double
     private var currentScreenSize: PixelSize
-    private let axe: String
+    let axe: String
     private let runner: any ProcessRunner
     private var supportsMultitap: Bool?
 
