@@ -29,19 +29,21 @@ final class FrameStore: @unchecked Sendable {
     var version: UInt64 { lock.withLock { generation } }
     var subscriberCount: Int { lock.withLock { subscribers.count } }
     func publish(_ image: CGImage) {
-        let targets = lock.withLock { () -> [AsyncStream<CGImage>.Continuation] in
+        // Yield under the lock so a new subscriber's first frame can never follow a newer one.
+        lock.withLock {
             self.image = image; generation &+= 1
-            return Array(subscribers.values)
+            for target in subscribers.values { target.yield(image) }
         }
-        for target in targets { target.yield(image) }
     }
     func frame(after version: UInt64) -> CGImage? { lock.withLock { generation != version ? image : nil } }
     func subscribe() -> AsyncStream<CGImage> {
         let (stream, continuation) = AsyncStream.makeStream(of: CGImage.self, bufferingPolicy: .bufferingNewest(1))
         let id = UUID()
         continuation.onTermination = { [weak self] _ in self?.lock.withLock { _ = self?.subscribers.removeValue(forKey: id) } }
-        let current = lock.withLock { subscribers[id] = continuation; return image }
-        if let current { continuation.yield(current) }
+        lock.withLock {
+            subscribers[id] = continuation
+            if let image { continuation.yield(image) }
+        }
         return stream
     }
 }
