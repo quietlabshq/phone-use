@@ -26,6 +26,7 @@ public actor ClassicHIDHost: HIDTransport {
             )
         }
         try HIDSocket.write(HIDP.interruptPacket(for: report), to: interruptFD)
+        HIDRuntime.didSend(report, interruptFD: interruptFD)
     }
 
     public func startAdvertising() throws {
@@ -65,19 +66,30 @@ enum HIDSocket {
         guard !packet.isEmpty else {
             throw PhoneError.commandFailed("cannot write an empty HIDP transaction")
         }
+        var noSignal: Int32 = 1
+        guard setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+            throw PhoneError.commandFailed("HID socket setup failed: \(String(cString: strerror(errno)))")
+        }
         try packet.withUnsafeBufferPointer { bytes in
             guard let base = bytes.baseAddress else {
                 throw PhoneError.commandFailed("HID report send failed")
             }
             var iov = iovec(iov_base: UnsafeMutableRawPointer(mutating: base), iov_len: bytes.count)
             var message = msghdr()
+            // CoreBluetooth's stream socket uses this empty ancillary record
+            // to delimit one L2CAP packet (matching HIDRuntime's sendmsg path).
+            var boundary = cmsghdr(cmsg_len: socklen_t(MemoryLayout<cmsghdr>.size), cmsg_level: SOL_SOCKET, cmsg_type: SCM_RIGHTS)
             let sent = withUnsafeMutablePointer(to: &iov) { iovPtr in
                 message.msg_iov = iovPtr
                 message.msg_iovlen = 1
-                return sendmsg(fd, &message, Int32(0x80))
+                return withUnsafeMutablePointer(to: &boundary) { boundaryPtr in
+                    message.msg_control = UnsafeMutableRawPointer(boundaryPtr)
+                    message.msg_controllen = socklen_t(MemoryLayout<cmsghdr>.size)
+                    return sendmsg(fd, &message, MSG_DONTWAIT)
+                }
             }
             guard sent == bytes.count else {
-                throw PhoneError.commandFailed("HID report send failed")
+                throw PhoneError.commandFailed("HID report send failed (\(sent)/\(bytes.count) bytes): \(String(cString: strerror(errno)))")
             }
         }
     }
@@ -86,6 +98,16 @@ enum HIDSocket {
 /// Objective-C runtime glue for private CoreBluetooth Classic types.
 enum HIDRuntime {
     private static let state = HIDRuntimeState()
+
+    static func didSend(_ report: HIDReport, interruptFD: Int32) {
+        state.lock.lock()
+        let control = state.channels.first { _, channels in
+            guard let interrupt = channels[HIDSDPRecord.interruptPSM] else { return false }
+            return int32(interrupt, "socketFD") == interruptFD
+        }.flatMap { state.controlSockets[$0.key] }
+        state.lock.unlock()
+        control?.didSend(report)
+    }
 
     static func install(opened: @escaping @Sendable (Int32) -> Void, closed: @escaping @Sendable () -> Void) throws {
         state.lock.lock()
@@ -189,23 +211,39 @@ enum HIDRuntime {
             state.lock.lock()
             state.channels[peerID, default: [:]][psm] = channel
             state.lock.unlock()
-            guard psm == HIDSDPRecord.interruptPSM else { return }
             let fd = int32(channel, "socketFD")
             guard fd >= 0 else { return }
-            notifyOpen(fd)
+            if psm == HIDSDPRecord.controlPSM {
+                do {
+                    let control = try HIDControlSocket(fd: fd)
+                    state.lock.lock()
+                    let old = state.controlSockets.updateValue(control, forKey: peerID)
+                    state.lock.unlock()
+                    old?.stop()
+                } catch {
+                    FileHandle.standardError.write(Data("phone-use hid: control channel failed: \(error)\n".utf8))
+                }
+            } else {
+                notifyOpen(fd)
+            }
         }
         let closed: @convention(block) (AnyObject?, Int) -> Void = { channel, _ in
             guard let channel else { return }
             let psm = uint16(channel, "PSM")
             state.lock.lock()
             let retained = state.channels[peerID]?[psm]
+            var control: HIDControlSocket?
             if retained === channel {
+                if psm == HIDSDPRecord.controlPSM {
+                    control = state.controlSockets.removeValue(forKey: peerID)
+                }
                 state.channels[peerID]?.removeValue(forKey: psm)
                 if state.channels[peerID]?.isEmpty == true {
                     state.channels.removeValue(forKey: peerID)
                 }
             }
             state.lock.unlock()
+            control?.stop()
             guard retained === channel else { return }
             guard psm == HIDSDPRecord.interruptPSM else { return }
             notifyClose()
@@ -285,6 +323,7 @@ private final class HIDRuntimeState: @unchecked Sendable {
     var onOpen: (@Sendable (Int32) -> Void)?
     var onClose: (@Sendable () -> Void)?
     var channels: [ObjectIdentifier: [UInt16: AnyObject]] = [:]
+    var controlSockets: [ObjectIdentifier: HIDControlSocket] = [:]
 }
 
 private typealias HandleMsgIMP = @convention(c) (AnyObject, Selector, Int32, AnyObject?) -> Void
