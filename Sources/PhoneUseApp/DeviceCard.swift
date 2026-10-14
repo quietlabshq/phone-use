@@ -40,7 +40,7 @@ struct DeviceCard: View {
                 Button(action: takeOver) {
                     Label("Take Over", systemImage: "hand.raised").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .controlSize(.large)
             }
         }
@@ -162,10 +162,9 @@ private struct CardLiveScreen: View {
                     Label("\(call.tool) \(call.arguments)", systemImage: "cursorarrow")
                         .lineLimit(1)
                         .font(.caption.monospaced())
-                        .foregroundStyle(.white)
                         .padding(.horizontal, 8).padding(.vertical, 5)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.black.opacity(0.75), in: .rect(cornerRadius: 8))
+                        .glassEffect(in: .rect(cornerRadius: 8))
                         .padding(6)
                 }
             }

@@ -23,9 +23,8 @@ struct AgentTouch: View {
                 if label {
                     Text("\(point.x), \(point.y)")
                         .font(.caption.monospacedDigit())
-                        .foregroundStyle(.white)
                         .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background(.black.opacity(0.75), in: .rect(cornerRadius: 6))
+                        .glassEffect(in: .capsule)
                         .position(x: min(geometry.size.width - 40, x + 48), y: max(12, y - 26))
                 }
             }

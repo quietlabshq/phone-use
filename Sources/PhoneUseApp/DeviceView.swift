@@ -38,6 +38,9 @@ struct DeviceView: View {
                     .popover(isPresented: $showingOpenApp, arrowEdge: .bottom) {
                         OpenAppForm(session: session, isPresented: $showingOpenApp)
                     }
+            }
+            ToolbarSpacer(.fixed)
+            ToolbarItemGroup {
                 Button("Save Screenshot", systemImage: "camera", action: saveScreenshot)
                     .keyboardShortcut("s")
                     .help("Save a screenshot (⌘S)")
@@ -45,10 +48,12 @@ struct DeviceView: View {
                 Toggle("Show Agent Touches", systemImage: "scope", isOn: $showTouches)
                     .help("Show where agents touch the screen")
             }
+            ToolbarSpacer(.fixed)
             ToolbarItemGroup {
                 ControlButtons(phoneID: entry.id, activity: activity)
                     .labelStyle(.titleAndIcon)
             }
+            ToolbarSpacer(.fixed)
             ToolbarItem {
                 Button("Inspector", systemImage: "sidebar.trailing", action: toggleInspector)
                     .help("Show or hide activity and connection details")

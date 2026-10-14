@@ -21,7 +21,7 @@ struct WallView: View {
         }
         .navigationTitle("Wall")
         .toolbar {
-            ToolbarItemGroup {
+            ToolbarItem {
                 Menu("Columns", systemImage: "rectangle.split.3x1") {
                     Picker("Columns", selection: $columns) {
                         ForEach([3, 4, 6, 8], id: \.self) { count in
@@ -31,6 +31,9 @@ struct WallView: View {
                     .pickerStyle(.inline)
                 }
                 .help("Columns")
+            }
+            ToolbarSpacer(.fixed)
+            ToolbarItem {
                 Button(model.anyPaused ? "Resume All Agents" : "Pause All Agents",
                        systemImage: model.anyPaused ? "play.fill" : "pause.fill",
                        action: togglePauseAll)
