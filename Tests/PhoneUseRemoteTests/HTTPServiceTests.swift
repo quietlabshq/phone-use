@@ -91,11 +91,11 @@ private struct HTTPFixture {
     let store: CredentialStore
     let secret: String
     let service: HTTPService
-    init(clock: RemoteClock = RemoteClock()) throws {
+    init(clock: RemoteClock = RemoteClock(), dispatcher: ToolDispatcher = ToolDispatcher(registry: EmptyRegistry())) throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         store = try CredentialStore(directory: directory)
         secret = try store.create(phoneIDs: ["one"]).secret
-        service = HTTPService(credentials: store, dispatcher: ToolDispatcher(registry: EmptyRegistry()), allowedHosts: ["localhost"], idleTimeout: 10, clock: { clock.now })
+        service = HTTPService(credentials: store, dispatcher: dispatcher, allowedHosts: ["localhost"], idleTimeout: 10, clock: { clock.now })
     }
     func request(_ body: String, session: String? = nil, extra: [(String, String)] = [], method: String = "POST", path: String = "/mcp") -> RemoteHTTPRequest {
         var headers = [("host", "localhost"), ("authorization", "Bearer \(secret)"), ("content-type", "application/json"), ("accept", "application/json, text/event-stream")]
@@ -119,6 +119,27 @@ private struct HTTPFixture {
     #expect(await fixture.service.handle(fixture.request("{}", session: sid), deadline: clock.now).status == 408)
     clock.advance(11)
     #expect(await fixture.service.handle(fixture.request("{}", session: sid)).status == 404)
+    await fixture.service.shutdown()
+}
+@Test func endedSessionsDropTheirHelpRequests() async throws {
+    let clock = RemoteClock()
+    let dispatcher = ToolDispatcher(registry: RemoteRegistry(phone: RemotePhone()))
+    let fixture = try HTTPFixture(clock: clock, dispatcher: dispatcher)
+    defer { try? FileManager.default.removeItem(at: fixture.directory) }
+    for end in ["delete", "expire"] {
+        let sid = try await fixture.initialize()
+        #expect(await fixture.service.handle(fixture.request(#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#, session: sid)).status == 202)
+        let help = #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"request_help","arguments":{"reason":"Passcode"}}}"#
+        #expect(await fixture.service.handle(fixture.request(help, session: sid)).status == 200)
+        #expect(await dispatcher.control(of: "one") == .helpRequested(reason: "Passcode", agent: .remote(sessionID: sid)))
+        if end == "delete" {
+            #expect(await fixture.service.handle(fixture.request("", session: sid, method: "DELETE")).status == 204)
+        } else {
+            clock.advance(11)
+            _ = await fixture.service.handle(fixture.request("{}"))
+        }
+        #expect(await dispatcher.control(of: "one") == .agents)
+    }
     await fixture.service.shutdown()
 }
 @Test func requestAndSessionLimitsRejectWithoutAllocationGrowth() async throws {

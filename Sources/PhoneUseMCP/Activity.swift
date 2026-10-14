@@ -6,6 +6,8 @@ public struct AgentIdentity: Sendable, Hashable {
     public let id: String
     public let name: String
     public init(id: String, name: String) { self.id = id; self.name = name }
+    /// A remote HTTP session, which reports no client name the app needs.
+    public static func remote(sessionID: String) -> AgentIdentity { AgentIdentity(id: "remote:\(sessionID)", name: "remote") }
 }
 
 /// Who may change a phone. Agents can always take screenshots.
