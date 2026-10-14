@@ -106,7 +106,9 @@ enum HIDRuntime {
     }
 
     static func handleMsg(peer: AnyObject, sel: Selector, msg: Int32, args: AnyObject?) {
-        if msg == 0x1B || msg == 0x1C, let args {
+        if msg == 0x1B || msg == 0x1C, let args,
+           let psm = intValue(args, key: "kCBMsgArgPSM"),
+           psm == Int(HIDSDPRecord.controlPSM) || psm == Int(HIDSDPRecord.interruptPSM) {
             handleChannelMessage(peer: peer, msg: msg, args: args)
             return
         }
@@ -164,37 +166,47 @@ enum HIDRuntime {
     }
 
     private static func handleChannelMessage(peer: AnyObject, msg: Int32, args: AnyObject) {
-        let psm = intValue(args, key: "kCBMsgArgPSM")
-        let isInterrupt = psm == nil || psm == Int(HIDSDPRecord.interruptPSM)
         if msg == 0x1B {
-            let result = intValue(args, key: "kCBMsgArgResult") ?? 0
-            guard result == 0 else { return }
             setL2CAPCallbacks(on: peer)
             _ = peer.perform(NSSelectorFromString("handleL2CAPChannelOpened:"), with: args)
-            if isInterrupt {
-                if let fd = socketFD(from: peer, psm: HIDSDPRecord.interruptPSM) ?? socketFD(fromOpenedArgs: args) {
-                    notifyOpen(fd)
-                }
-            }
             return
         }
         _ = peer.perform(NSSelectorFromString("handleL2CAPChannelClosed:"), with: args)
-        if isInterrupt {
-            notifyClose()
-        }
     }
 
     private static func setL2CAPCallbacks(on peer: AnyObject) {
+        // IOBluetooth installs callbacks that wrap and retain these channels.
+        // Replacing them prevents its registered listeners from accepting them.
+        guard objectValue(peer, "connectL2CAPCallback") == nil,
+              objectValue(peer, "disconnectL2CAPCallback") == nil else { return }
+        let peerID = ObjectIdentifier(peer)
         let opened: @convention(block) (AnyObject?, Int) -> Void = { channel, status in
             guard status == 0, let channel else { return }
             let psm = uint16(channel, "PSM")
+            guard psm == HIDSDPRecord.controlPSM || psm == HIDSDPRecord.interruptPSM else { return }
+            // CBClassicPeer's channel table is weak. Retain both HID channels,
+            // including control, until CoreBluetooth delivers their close.
+            state.lock.lock()
+            state.channels[peerID, default: [:]][psm] = channel
+            state.lock.unlock()
             guard psm == HIDSDPRecord.interruptPSM else { return }
             let fd = int32(channel, "socketFD")
             guard fd >= 0 else { return }
             notifyOpen(fd)
         }
         let closed: @convention(block) (AnyObject?, Int) -> Void = { channel, _ in
-            let psm = channel.map { uint16($0, "PSM") } ?? HIDSDPRecord.interruptPSM
+            guard let channel else { return }
+            let psm = uint16(channel, "PSM")
+            state.lock.lock()
+            let retained = state.channels[peerID]?[psm]
+            if retained === channel {
+                state.channels[peerID]?.removeValue(forKey: psm)
+                if state.channels[peerID]?.isEmpty == true {
+                    state.channels.removeValue(forKey: peerID)
+                }
+            }
+            state.lock.unlock()
+            guard retained === channel else { return }
             guard psm == HIDSDPRecord.interruptPSM else { return }
             notifyClose()
         }
@@ -202,19 +214,11 @@ enum HIDRuntime {
         invokeBlock(peer, "setDisconnectL2CAPCallback:", closed)
     }
 
-    private static func socketFD(from peer: AnyObject, psm: UInt16) -> Int32? {
-        typealias ChannelForPSM = @convention(c) (AnyObject, Selector, UInt16) -> AnyObject?
-        let selector = NSSelectorFromString("channelWithPSM:")
-        guard let method = class_getInstanceMethod(object_getClass(peer), selector) else { return nil }
-        let imp = unsafeBitCast(method_getImplementation(method), to: ChannelForPSM.self)
-        guard let channel = imp(peer, selector, psm) else { return nil }
-        let fd = int32(channel, "socketFD")
-        return fd >= 0 ? fd : nil
-    }
-
-    private static func socketFD(fromOpenedArgs args: AnyObject) -> Int32? {
-        if let number = (args as? NSDictionary)?["kCBMsgArgSocketFD"] as? NSNumber { return number.int32Value }
-        return nil
+    private static func objectValue(_ object: AnyObject, _ name: String) -> AnyObject? {
+        typealias Getter = @convention(c) (AnyObject, Selector) -> AnyObject?
+        let selector = NSSelectorFromString(name)
+        guard let method = class_getInstanceMethod(object_getClass(object), selector) else { return nil }
+        return unsafeBitCast(method_getImplementation(method), to: Getter.self)(object, selector)
     }
 
     private static func intValue(_ args: AnyObject, key: String) -> Int? {
@@ -280,6 +284,7 @@ private final class HIDRuntimeState: @unchecked Sendable {
     var patched = false
     var onOpen: (@Sendable (Int32) -> Void)?
     var onClose: (@Sendable () -> Void)?
+    var channels: [ObjectIdentifier: [UInt16: AnyObject]] = [:]
 }
 
 private typealias HandleMsgIMP = @convention(c) (AnyObject, Selector, Int32, AnyObject?) -> Void
