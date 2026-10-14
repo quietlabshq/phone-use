@@ -1,6 +1,8 @@
 import ArgumentParser
-import PhoneUseMCP
+import Foundation
 import PhoneUseCore
+import PhoneUseHardware
+import PhoneUseMCP
 
 @main
 struct PhoneUse: AsyncParsableCommand {
@@ -12,7 +14,15 @@ struct MCPCommand: AsyncParsableCommand {
     mutating func run() async throws {
         let ownership = try ProcessOwnership()
         defer { withExtendedLifetime(ownership) {} }
-        try await MCPServer.run(dispatcher: Runtime.dispatcher(backend))
+        let dispatcher = Runtime.dispatcher(backend)
+        if backend.usesHardware {
+            do {
+                try await ClassicHIDHost.shared.startAdvertising()
+            } catch {
+                FileHandle.standardError.write(Data("phone-use hid: advertising failed: \(error)\n".utf8))
+            }
+        }
+        try await MCPServer.run(dispatcher: dispatcher)
     }
 }
 struct List: AsyncParsableCommand {

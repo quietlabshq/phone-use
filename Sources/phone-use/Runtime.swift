@@ -41,8 +41,11 @@ enum Runtime {
         var registries: [any PhoneRegistry] = []
         if options.usesSimulator { registries.append(SimulatorRegistry()) }
         if options.usesHardware {
-            do { registries.append(HardwareRegistry(config: try Config.load(), transportFor: transportFactory)) }
-            catch { registries.append(FailedRegistry(message: "Hardware configuration: \(error)")) }
+            do {
+                let config = try Config.load()
+                registries.append(HardwareRegistry(config: config, transportFor: transportFactory))
+                if let phone = config.phones.first { _ = transportFactory(phone) }
+            } catch { registries.append(FailedRegistry(message: "Hardware configuration: \(error)")) }
         }
         return ToolDispatcher(registry: CombinedRegistry(registries), imageEncoder: CoreGraphicsFrameJPEGEncoder())
     }

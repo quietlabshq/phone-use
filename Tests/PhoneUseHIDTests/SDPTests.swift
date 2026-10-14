@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import PhoneUseHID
 
@@ -13,6 +14,18 @@ struct SDPTests {
         let descriptor = try #require(hidDescriptor(in: attributes[0x0206]!))
         #expect(descriptor == ReportDescriptor.bytes)
         #expect(String(bytes: stringValue(attributes[0x0100]!) ?? [], encoding: .utf8) == "phone-use HID Interface")
+    }
+
+    @Test func ioBluetoothDictionaryPublishesHIDNameAndDescriptor() {
+        let dict = HIDSDPRecord.ioBluetoothDictionary
+        #expect(dict["0x0100 - ServiceName"] as? String == HIDSDPRecord.serviceName)
+        let classes = dict["0x0001 - ServiceClassIDList"] as? [Data]
+        #expect(classes == [Data([0x11, 0x24])])
+        let descriptorList = dict["0x0206 - HIDDescriptorList"] as? [[Any]]
+        let descriptor = (descriptorList?.first?.last as? [String: Any])?["DataElementValue"] as? Data
+        #expect(Array(descriptor ?? Data()) == ReportDescriptor.bytes)
+        #expect(dict["0x0004 - ProtocolDescriptorList"] != nil)
+        #expect(dict["0x000D - AdditionalProtocolDescriptorLists"] != nil)
     }
 }
 

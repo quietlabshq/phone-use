@@ -16,17 +16,19 @@ public actor ClassicHIDHost: HIDTransport {
     private var startError: PhoneError?
     private var started = false
 
-    public func isHostConnected() async -> Bool { interruptFD >= 0 }
+    public func isHostConnected() async -> Bool {
+        interruptFD >= 0 || HIDAdvertiser.shared.hasInterruptChannel()
+    }
 
     public func send(_ report: HIDReport) async throws {
         try startAdvertising()
-        guard interruptFD >= 0 else {
-            throw PhoneError.inputNotConnected(
-                "No iPhone is connected over Bluetooth HID. Enable AssistiveTouch, open Settings > Bluetooth on the phone, and pair '\(HIDSDPRecord.serviceName)'."
-            )
+        let packet = HIDP.interruptPacket(for: report)
+        if interruptFD >= 0 {
+            try HIDSocket.write(packet, to: interruptFD)
+            HIDRuntime.didSend(report, interruptFD: interruptFD)
+            return
         }
-        try HIDSocket.write(HIDP.interruptPacket(for: report), to: interruptFD)
-        HIDRuntime.didSend(report, interruptFD: interruptFD)
+        try HIDAdvertiser.shared.writeInterrupt(packet)
     }
 
     public func startAdvertising() throws {
@@ -39,19 +41,24 @@ public actor ClassicHIDHost: HIDTransport {
                 Task { await self?.setInterrupt(-1) }
             }
             let manager = try HIDRuntime.makeManager()
-            let handle: UInt32 = HIDRuntime.addService(HIDSDPRecord.bytes, to: manager)
-            guard handle != 0 else {
-                throw PhoneError.commandFailed("Bluetooth HID service registration failed")
+            HIDRuntime.waitUntilPowered(manager)
+            let handle = HIDRuntime.addService(HIDSDPRecord.bytes, to: manager)
+            HIDLog.write("addServiceWithData handle=\(handle)")
+            try HIDAdvertiser.shared.start { connected in
+                HIDLog.write(connected ? "iPhone opened HID interrupt channel" : "HID interrupt channel closed")
             }
             HIDRuntime.setDiscoverable(true, on: manager)
             HIDRuntime.setConnectable(true, on: manager)
             self.manager = manager
+            HIDLog.write("advertising as \(HIDSDPRecord.serviceName)")
         } catch let error as PhoneError {
             startError = error
+            HIDLog.write("start failed: \(error)")
             throw error
         } catch {
             let wrapped = PhoneError.commandFailed("Bluetooth HID host failed to start: \(error)")
             startError = wrapped
+            HIDLog.write("start failed: \(wrapped)")
             throw wrapped
         }
     }
@@ -131,6 +138,7 @@ enum HIDRuntime {
         if msg == 0x1B || msg == 0x1C, let args,
            let psm = intValue(args, key: "kCBMsgArgPSM"),
            psm == Int(HIDSDPRecord.controlPSM) || psm == Int(HIDSDPRecord.interruptPSM) {
+            HIDLog.write("CBClassicPeer handleMsg=\(msg) args=\(args)")
             handleChannelMessage(peer: peer, msg: msg, args: args)
             return
         }
@@ -154,6 +162,31 @@ enum HIDRuntime {
             return manager
         }
         throw PhoneError.commandFailed("CBClassicManager init failed")
+    }
+
+    static func waitUntilPowered(_ manager: AnyObject) {
+        invokeObject(manager, "alertUserNotificationIsReady:", nil)
+        invokeBlock(manager, "setConnectCallback:", { (_: AnyObject) in } as @convention(block) (AnyObject) -> Void)
+        invokeBlock(manager, "setDisconnectCallback:", { (_: AnyObject) in } as @convention(block) (AnyObject) -> Void)
+        _ = manager.perform(NSSelectorFromString("sendLocalDeviceStateRequest"))
+        for _ in 0..<40 {
+            if powerState(manager) >= 2 { return }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+    }
+
+    private static func powerState(_ manager: AnyObject) -> Int {
+        typealias Getter = @convention(c) (AnyObject, Selector) -> Int
+        let selector = NSSelectorFromString("powerState")
+        guard let method = class_getInstanceMethod(object_getClass(manager), selector) else { return -1 }
+        return unsafeBitCast(method_getImplementation(method), to: Getter.self)(manager, selector)
+    }
+
+    private static func invokeObject(_ object: AnyObject, _ name: String, _ value: Any?) {
+        typealias Setter = @convention(c) (AnyObject, Selector, AnyObject?) -> Void
+        let selector = NSSelectorFromString(name)
+        guard let method = class_getInstanceMethod(object_getClass(object), selector) else { return }
+        unsafeBitCast(method_getImplementation(method), to: Setter.self)(object, selector, value as AnyObject?)
     }
 
     private static func initManager(_ managerClass: AnyClass, queue: DispatchQueue, options: [String: Any]) -> AnyObject? {
