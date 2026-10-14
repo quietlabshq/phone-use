@@ -1,183 +1,201 @@
 import PhoneUseCore
+import PhoneUseIPC
 import SwiftUI
 
-enum SidebarItem: Hashable {
-    case phone(String)
+enum Route: Hashable {
+    case wall
+    case device(String)
     case setup
 }
 
 struct ContentView: View {
     @Environment(AppModel.self) private var model
-    @State private var selection: SidebarItem?
+    @State private var route = Route.wall
 
     var body: some View {
-        NavigationSplitView {
-            List(selection: $selection) {
-                Section("Phones") {
-                    ForEach(model.phones) { entry in
-                        Label(entry.info.name, systemImage: entry.info.kind == .hardware ? "iphone" : "iphone.gen3.radiowaves.left.and.right")
-                            .tag(SidebarItem.phone(entry.id))
+        HStack(spacing: 0) {
+            Sidebar(route: $route)
+            Rectangle().fill(Color(hex: 0x222428)).frame(width: 1)
+            Group {
+                switch route {
+                case .wall:
+                    WallView(route: $route)
+                case let .device(id):
+                    if let entry = model.phones.first(where: { $0.id == id }) {
+                        DeviceView(entry: entry, session: model.session(for: entry), route: $route).id(entry.id)
+                    } else {
+                        Disconnected(route: $route)
                     }
-                    if model.phones.isEmpty {
-                        Text(model.refreshing ? "Looking for phones..." : "No phones found")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Section {
-                    Label("Setup", systemImage: "checklist").tag(SidebarItem.setup)
+                case .setup:
+                    SetupView()
                 }
             }
-            .navigationSplitViewColumnWidth(min: 200, ideal: 230)
-            .safeAreaInset(edge: .bottom) { HostStatusBar() }
-        } detail: {
-            switch selection {
-            case let .phone(id):
-                if let entry = model.phones.first(where: { $0.id == id }) {
-                    PhoneDetailView(entry: entry, session: model.session(for: entry)).id(entry.id)
-                } else {
-                    ContentUnavailableView("Phone disconnected", systemImage: "iphone.slash",
-                                           description: Text("It will reappear here when it is available again."))
-                }
-            case .setup:
-                SetupView()
-            case nil:
-                ContentUnavailableView("Select a phone", systemImage: "iphone",
-                                       description: Text(model.phones.isEmpty ? "Boot a simulator or connect an iPhone, then see Setup." : "Choose a phone in the sidebar to see it live."))
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Button { Task { await model.refresh() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
-                    .disabled(model.refreshing)
-                    .help("Discover phones again")
-            }
-        }
-        .onChange(of: model.phones) { _, phones in
-            if selection == nil, let first = phones.first { selection = .phone(first.id) }
-        }
+        .background(Theme.background)
+        .foregroundStyle(Theme.text)
+        .font(Theme.font(13))
+        .ignoresSafeArea()
         .onAppear {
-            if case .failed = model.hostState { selection = .setup }
+            if case .failed = model.hostState { route = .setup }
         }
     }
 }
 
-private struct HostStatusBar: View {
+private struct Disconnected: View {
+    @Binding var route: Route
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "iphone.slash").font(.system(size: 34, weight: .light)).foregroundStyle(Theme.tertiary)
+            Text("Phone disconnected").font(Theme.font(16, .semibold))
+            Text("It will reappear on the Wall when it is available again.").foregroundStyle(Theme.tertiary)
+            Button("Back to Wall") { route = .wall }.buttonStyle(ThemeButtonStyle())
+        }
+    }
+}
+
+private struct Sidebar: View {
+    @Environment(AppModel.self) private var model
+    @Binding var route: Route
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            HStack(spacing: 10) {
+                RoundedRectangle(cornerRadius: 7).fill(Theme.amber).frame(width: 26, height: 26)
+                    .overlay(Image(systemName: "iphone").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.amberInk))
+                Text("Phone Use").font(Theme.font(14, .semibold))
+            }
+            .padding(.horizontal, 8)
+
+            VStack(spacing: 2) {
+                NavRow(icon: "square.grid.2x2", title: "Wall", selected: route == .wall) { route = .wall } trailing: {
+                    Text("\(model.devices.count)").font(Theme.mono(11)).foregroundStyle(Theme.tertiary)
+                }
+                NavRow(icon: "checklist", title: "Setup", selected: route == .setup) { route = .setup } trailing: {
+                    let todo = model.setupProgress.total - model.setupProgress.done
+                    if todo > 0 {
+                        Text("\(todo)").font(Theme.font(11, .semibold)).foregroundStyle(Theme.amberInk)
+                            .padding(.horizontal, 7).padding(.vertical, 1)
+                            .background(Theme.amber, in: Capsule())
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("DEVICES").font(Theme.font(11, .medium)).kerning(0.5).foregroundStyle(Theme.quaternary)
+                    .padding(.horizontal, 10).padding(.bottom, 6)
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    VStack(spacing: 2) {
+                        ForEach(model.devices) { device in
+                            let status = model.status(of: device, at: context.date)
+                            NavRow(dot: status, title: device.name, selected: route == .device(device.id)) {
+                                route = device.entry == nil ? .setup : .device(device.id)
+                            } trailing: {
+                                Text(device.transport).font(Theme.mono(10)).foregroundStyle(Theme.quaternary)
+                            }
+                        }
+                    }
+                }
+                Button { route = .setup } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "plus").font(.system(size: 12, weight: .medium)).frame(width: 16)
+                        Text("Add a device")
+                        Spacer()
+                    }
+                    .foregroundStyle(Theme.tertiary)
+                    .padding(.horizontal, 10).padding(.vertical, 7)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer(minLength: 0)
+            ServerCard()
+        }
+        .padding(.top, 44)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 16)
+        .frame(width: 232)
+        .frame(maxHeight: .infinity)
+        .background(Theme.sidebar)
+    }
+}
+
+private struct NavRow<Trailing: View>: View {
+    var icon: String?
+    var dot: PhoneStatus?
+    let title: String
+    let selected: Bool
+    let action: () -> Void
+    @ViewBuilder var trailing: Trailing
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                if let icon {
+                    Image(systemName: icon).font(.system(size: 13)).frame(width: 16)
+                } else if let dot {
+                    Dot(color: dot.color, breathing: dot.breathes)
+                }
+                Text(title).lineLimit(1).truncationMode(.tail)
+                    .font(Theme.font(13, icon != nil && selected ? .medium : .regular))
+                Spacer(minLength: 4)
+                trailing
+            }
+            .foregroundStyle(selected ? Theme.text : Theme.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, icon != nil ? 8 : 7)
+            .background(selected ? Theme.selected : hovering ? Theme.selected.opacity(0.5) : .clear, in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
+private struct ServerCard: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        HStack(spacing: 6) {
-            switch model.hostState {
-            case .starting:
-                ProgressView().controlSize(.small)
-                Text("Starting")
-            case .serving:
-                Image(systemName: "circle.fill").foregroundStyle(.green).font(.system(size: 7))
-                Text("Serving agents")
-            case .failed:
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                Text("Not serving, see Setup")
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                switch model.hostState {
+                case .starting: Dot(color: Theme.amber, breathing: true); Text("Starting MCP server").font(Theme.font(13, .medium))
+                case .serving: Dot(color: Theme.green); Text("MCP server running").font(Theme.font(13, .medium))
+                case .failed: Dot(color: Theme.red); Text("Not serving agents").font(Theme.font(13, .medium))
+                }
             }
-            Spacer()
+            Text(model.agents.count == 1 ? "1 agent connected" : "\(model.agents.count) agents connected")
+                .font(Theme.font(12)).foregroundStyle(Theme.tertiary)
+            Text(HostPaths.socket.path.abbreviatingHome)
+                .font(Theme.mono(10.5)).foregroundStyle(Theme.quaternary).lineLimit(1).truncationMode(.middle)
+                .textSelection(.enabled)
         }
-        .font(.callout)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.line))
     }
 }
 
-struct PhoneDetailView: View {
-    let entry: PhoneEntry
-    let session: PhoneSession
-    @State private var appName = ""
-    @State private var showingOpenApp = false
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ZStack {
-                LiveScreen(session: session)
-                if session.image == nil {
-                    VStack(spacing: 8) {
-                        if let error = session.streamError {
-                            Image(systemName: "exclamationmark.triangle").font(.title)
-                            Text(error).multilineTextAlignment(.center).textSelection(.enabled)
-                        } else {
-                            ProgressView()
-                            Text("Waiting for the screen...")
-                        }
-                    }
-                    .foregroundStyle(.white.opacity(0.8))
-                    .padding(32)
-                    .allowsHitTesting(false)
-                }
-            }
-            .frame(minWidth: 280, minHeight: 400)
-            StatusFooter(entry: entry, session: session)
-        }
-        .navigationTitle(entry.info.name)
-        .navigationSubtitle(entry.info.kind == .hardware ? "iPhone" : "Simulator")
-        .onAppear { session.start() }
-        .onDisappear { session.stop() }
-        .toolbar {
-            ToolbarItemGroup {
-                Button { session.home() } label: { Label("Home", systemImage: "house") }
-                    .keyboardShortcut("h", modifiers: [.command, .shift])
-                    .help("Go to the Home Screen (Shift-Command-H)")
-                Button { showingOpenApp = true } label: { Label("Open App", systemImage: "square.grid.2x2") }
-                    .keyboardShortcut("o", modifiers: [.command])
-                    .help("Open an app through Spotlight (Command-O)")
-                    .popover(isPresented: $showingOpenApp, arrowEdge: .bottom) {
-                        HStack {
-                            TextField("App name", text: $appName)
-                                .frame(width: 200)
-                                .onSubmit(openApp)
-                            Button("Open", action: openApp).disabled(appName.isEmpty)
-                        }
-                        .padding()
-                    }
-            }
+extension PhoneStatus {
+    var color: Color {
+        switch self {
+        case .driving: Theme.amber
+        case .needsYou, .person: Theme.blue
+        case .paused: Theme.tertiary
+        case .idle: Theme.idle
+        case .offline: Theme.red
         }
     }
-
-    private func openApp() {
-        let name = appName.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty else { return }
-        session.openApp(name)
-        showingOpenApp = false
-        appName = ""
-    }
+    var breathes: Bool { if case .driving = self { true } else { false } }
 }
 
-private struct StatusFooter: View {
-    let entry: PhoneEntry
-    let session: PhoneSession
-
-    var body: some View {
-        HStack(spacing: 12) {
-            if let image = session.image {
-                Text("\(image.width)x\(image.height)").monospacedDigit()
-                Text("\(session.framesPerSecond, specifier: "%.0f") fps").monospacedDigit()
-            }
-            if entry.info.kind == .hardware {
-                switch session.inputConnected {
-                case true?: Label("Bluetooth input connected", systemImage: "dot.radiowaves.left.and.right").foregroundStyle(.green)
-                case false?: Label("Bluetooth input not connected", systemImage: "dot.radiowaves.left.and.right").foregroundStyle(.orange)
-                case nil: EmptyView()
-                }
-            }
-            if session.pendingInputs > 0 { ProgressView().controlSize(.small) }
-            if let error = session.inputError {
-                Label(error, systemImage: "exclamationmark.circle").foregroundStyle(.red).lineLimit(1).help(error)
-            }
-            Spacer()
-            Text("Click to tap, hold to long press, drag to swipe, type to send keys")
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-        }
-        .font(.callout)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(.bar)
+extension String {
+    var abbreviatingHome: String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return hasPrefix(home) ? "~" + dropFirst(home.count) : self
     }
 }

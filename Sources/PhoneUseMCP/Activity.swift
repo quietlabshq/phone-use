@@ -38,8 +38,13 @@ public struct ToolCallRecord: Sendable, Equatable, Identifiable {
     /// Native-pixel touch points: one for taps and long presses, start and end for swipes.
     public let touches: [PixelPoint]
     public let started: Date
-    public var outcome = Outcome.running
+    public var outcome: Outcome
     public var finished: Date?
+    public init(id: UUID, phoneID: String, source: Source, tool: String, arguments: String, touches: [PixelPoint], started: Date,
+                outcome: Outcome = .running, finished: Date? = nil) {
+        self.id = id; self.phoneID = phoneID; self.source = source; self.tool = tool; self.arguments = arguments
+        self.touches = touches; self.started = started; self.outcome = outcome; self.finished = finished
+    }
 }
 
 public enum DispatcherEvent: Sendable, Equatable {

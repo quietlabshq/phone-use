@@ -16,6 +16,8 @@ extension PhoneSession: LiveScreenInput {}
 /// Draws the newest frame aspect-fit and turns clicks, drags, and typing into input.
 final class LiveScreenNSView: NSView {
     weak var input: (any LiveScreenInput)?
+    /// Thumbnails pass clicks through to the SwiftUI view around them.
+    var interactive = true
     private let frameLayer = CALayer()
     private let touchLayer = CAShapeLayer()
     private var imageSize: PixelSize?
@@ -24,13 +26,14 @@ final class LiveScreenNSView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.backgroundColor = NSColor(Theme.code).cgColor
+        layer?.masksToBounds = true
         frameLayer.contentsGravity = .resizeAspect
         frameLayer.magnificationFilter = .linear
         frameLayer.minificationFilter = .trilinear
         layer?.addSublayer(frameLayer)
-        touchLayer.fillColor = NSColor.systemBlue.withAlphaComponent(0.35).cgColor
-        touchLayer.strokeColor = NSColor.systemBlue.cgColor
+        touchLayer.fillColor = NSColor(Theme.blue).withAlphaComponent(0.35).cgColor
+        touchLayer.strokeColor = NSColor(Theme.blue).cgColor
         touchLayer.lineWidth = 3
         touchLayer.lineCap = .round
         layer?.addSublayer(touchLayer)
@@ -40,7 +43,13 @@ final class LiveScreenNSView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override var isFlipped: Bool { true }
-    override var acceptsFirstResponder: Bool { true }
+    override var acceptsFirstResponder: Bool { interactive }
+    override func hitTest(_ point: NSPoint) -> NSView? { interactive ? super.hitTest(point) : nil }
+
+    var cornerRadius: CGFloat {
+        get { layer?.cornerRadius ?? 0 }
+        set { layer?.cornerRadius = newValue }
+    }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     func show(_ image: CGImage?) {
@@ -141,6 +150,8 @@ final class LiveScreenNSView: NSView {
 
 struct LiveScreen: NSViewRepresentable {
     let session: PhoneSession
+    var interactive = true
+    var cornerRadius: CGFloat = 0
 
     func makeNSView(context: Context) -> LiveScreenNSView {
         let view = LiveScreenNSView()
@@ -150,6 +161,8 @@ struct LiveScreen: NSViewRepresentable {
 
     func updateNSView(_ view: LiveScreenNSView, context: Context) {
         view.input = session
+        view.interactive = interactive
+        view.cornerRadius = cornerRadius
         view.show(session.image)
     }
 }

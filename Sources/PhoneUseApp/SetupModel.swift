@@ -130,3 +130,23 @@ final class SetupModel {
         loginItem = SMAppService.mainApp.status
     }
 }
+
+extension SetupModel {
+    var axeReady: Bool { axe.version != nil && axe.multitap }
+}
+
+extension AppModel {
+    /// Countable setup checks: this Mac, the developer tools, and each configured iPhone.
+    var setupProgress: (done: Int, total: Int) {
+        var checks = [setup.camera == .authorized, setup.bluetooth == .allowedAlways, setup.axeReady, setup.cliInstalled]
+        for phone in setup.configured {
+            checks.append(setup.captureDevices.contains(phone.captureDeviceName))
+            checks.append(inputConnected(for: phone) == true)
+        }
+        return (checks.filter { $0 }.count, checks.count)
+    }
+
+    func inputConnected(for phone: PhoneConfig) -> Bool? {
+        phones.first { $0.info.kind == .hardware && $0.info.name == phone.name }.flatMap { inputConnected[$0.id] }
+    }
+}

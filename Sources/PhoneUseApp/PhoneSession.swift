@@ -3,24 +3,23 @@ import Foundation
 import Observation
 import PhoneUseCapture
 import PhoneUseCore
-import PhoneUseHardware
 import PhoneUseMCP
 
-/// Live view state for one phone: the frame stream, input, and link status.
+/// Live view state for one phone: the frame stream and manual input.
 @MainActor @Observable
 final class PhoneSession {
     let id: String
     private(set) var image: CGImage?
     private(set) var streamError: String?
     private(set) var inputError: String?
-    private(set) var inputConnected: Bool?
     private(set) var pendingInputs = 0
     private(set) var framesPerSecond = 0.0
 
     @ObservationIgnored private var phone: any Phone
     @ObservationIgnored private weak var model: AppModel?
     @ObservationIgnored private var streamTask: Task<Void, Never>?
-    @ObservationIgnored private var statusTask: Task<Void, Never>?
+    @ObservationIgnored private var viewers = 0
+    @ObservationIgnored private var idleStop: Task<Void, Never>?
     @ObservationIgnored private var typed = ""
     @ObservationIgnored private var typingFlush: Task<Void, Never>?
     @ObservationIgnored private var frameTimes: [ContinuousClock.Instant] = []
@@ -35,7 +34,11 @@ final class PhoneSession {
 
     func update(phone: any Phone) { self.phone = phone }
 
-    func start() {
+    /// Streams while at least one view shows the phone. Stopping waits a moment, so moving
+    /// between the Wall and the Device screen keeps one stream running.
+    func attach() {
+        viewers += 1
+        idleStop?.cancel(); idleStop = nil
         guard streamTask == nil else { return }
         streamTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -44,19 +47,21 @@ final class PhoneSession {
                 try? await Task.sleep(for: .seconds(2))
             }
         }
-        if phone is HardwarePhone {
-            statusTask = Task { [weak self] in
-                while !Task.isCancelled {
-                    await self?.pollInput()
-                    try? await Task.sleep(for: .seconds(2))
-                }
-            }
+    }
+
+    func detach() {
+        viewers = max(0, viewers - 1)
+        guard viewers == 0 else { return }
+        idleStop = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            self?.stop()
         }
     }
 
-    func stop() {
+    private func stop() {
+        idleStop?.cancel(); idleStop = nil
         streamTask?.cancel(); streamTask = nil
-        statusTask?.cancel(); statusTask = nil
     }
 
     /// Ends the input queue too; used when the phone disappears.
@@ -88,11 +93,6 @@ final class PhoneSession {
         frameTimes.append(now)
         frameTimes.removeAll { now - $0 > .seconds(2) }
         framesPerSecond = Double(frameTimes.count) / 2
-    }
-
-    private func pollInput() async {
-        guard let hardware = phone as? HardwarePhone else { return }
-        inputConnected = await hardware.isInputConnected()
     }
 
     // MARK: Input
@@ -146,6 +146,7 @@ final class PhoneSession {
             for await command in commands {
                 do {
                     guard let model else { throw PhoneError.commandFailed("Phone Use is shutting down") }
+                    await model.prepareManualInput(on: id)
                     try await model.run(command, on: id)
                     self?.inputError = nil
                 } catch {

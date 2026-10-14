@@ -9,12 +9,16 @@ struct PhoneUseApp: App {
         Window("Phone Use", id: "main") {
             ContentView()
                 .environment(delegate.model)
-                .frame(minWidth: 720, minHeight: 560)
+                .frame(minWidth: 980, minHeight: 640)
+                .preferredColorScheme(.dark)
         }
-        .defaultSize(width: 960, height: 820)
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1440, height: 900)
 
-        MenuBarExtra("Phone Use", systemImage: "iphone") {
+        MenuBarExtra {
             MenuBarContent().environment(delegate.model)
+        } label: {
+            Image(systemName: delegate.model.needsYouCount > 0 ? "iphone.badge.exclamationmark" : "iphone")
         }
     }
 }
@@ -48,6 +52,9 @@ private struct MenuBarContent: View {
         case .starting: Text("Starting...")
         case .serving: Text("Serving agents, \(model.phones.count) phone\(model.phones.count == 1 ? "" : "s")")
         case .failed: Text("Not serving agents")
+        }
+        if model.needsYouCount > 0 {
+            Text(model.needsYouCount == 1 ? "1 phone needs you" : "\(model.needsYouCount) phones need you")
         }
         ForEach(model.phones) { entry in Text(entry.info.name) }
         Divider()
