@@ -2,6 +2,12 @@
 
 Phone Use lets AI agents and you control iPhone simulators and physical iPhones from a Mac. **Phone Use.app** owns phone access: it holds the Camera and Bluetooth permissions, shows every phone live, and lets you click, drag, and type on them. The `phone-use` CLI and its stdio MCP server talk to the app, so permissions work no matter which agent host launched them.
 
+| Wall | Device |
+| --- | --- |
+| ![The Wall showing a simulator and a USB iPhone](docs/images/wall.png) | ![The Device screen with the live screen and agent activity](docs/images/device.png) |
+| **Setup** | **Settings** |
+| ![The Setup screen with permission and phone checks](docs/images/setup.png) | ![The Settings window](docs/images/settings.png) |
+
 ## Install the app
 
 Requires macOS 26+, Xcode 26+ with an iPhone simulator, and Swift 6.2+. First build the pinned AXe with native multi-tap support; the app bundles it. The helper needs XcodeGen; the command below uses it through a temporary Nix environment. If XcodeGen is already on `PATH`, run `scripts/build-axe.sh` directly.
